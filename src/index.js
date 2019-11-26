@@ -1,22 +1,43 @@
 process.env.TZ = 'Asia/Shanghai'
 
 // const childProcess = require('child_process')
+const fs = require('fs')
+
+/**
+ * @type {{ proxyUrl: string, timeout: number, downloadDir: string, httpChunkSizeKB: number, aria2: any }}
+ */
+const config = JSON.parse(fs.readFileSync('config.json').toString())
+
+const path = require('path')
+
+const axios = require('axios').default
+const logger = require('ya-node-logger')
 
 const meow = require('meow')
+
+const strTools = require('./lib/str')
 
 const cli = meow(`
     Usage
       $ node src -s <> [options]
 
     Options
-      --search, -s   Searching key words
-      --limit, -l    Limit of download content size (MB)
-      --fakerun, -f  Fake running, won't actually download anything
+      --search, -s       Searching key words
+      --exclude, -e      Excluding key words
+      --limit, -l        Limit of download content size (MB)
+      --fakerun, -f      Fake running, won't actually download anything
+      --skipless         Skipping file smaller than given size (MB)
+      --skipmore         Skipping file larger than given size (MB)
+      --rebuild_dlist    Rebuild the dlist.txt by searching the download path
 `, {
     flags: {
       search: {
         type: 'string',
         alias: 's'
+      },
+      exclude: {
+        type: 'string',
+        alias: 'e'
       },
       limit: {
         type: 'string',
@@ -26,48 +47,62 @@ const cli = meow(`
       fakerun: {
         type: 'boolean',
         alias: 'f'
+      },
+      skipless: {
+        type: 'string'
+      },
+      skipmore: {
+        type: 'string'
+      },
+      rebuild_dlist: {
+        type: 'boolean'
       }
     }
 })
 
+if (cli.flags.skipless && isNaN(+cli.flags.skipless)) {
+  console.log('bad arg --skipless, should be a number')
+  process.exit(0)
+}
+
+if (cli.flags.skipmore && isNaN(+cli.flags.skipmore)) {
+  console.log('bad arg --skipless, should be a number')
+  process.exit(0)
+}
+
 global.cli = cli
-
-const fs = require('fs')
-const path = require('path')
-
-const axios = require('axios').default
-const logger = require('ya-node-logger')
-
-/**
- * @type {{ proxyUrl: string, timeout: number, downloadDir: string, httpChunkSizeKB: number, aria2: any }}
- */
-const config = JSON.parse(fs.readFileSync('config.json').toString())
 
 logger.initNewLogger('main', '.', 'log-', '', true, (t, m) => console.log(logger.logLevelToColor(t)(m)))
 const log = logger.getLogger('main')
 
 const scrapy = require('./lib/scrapy')
-const strTools = require('./lib/str')
 
 const run = async () => {
 
   fs.existsSync(config.downloadDir) || fs.mkdirSync(config.downloadDir)
 
   // delete last download fragments
-  fs.readdirSync(config.downloadDir).forEach(dp => {
-    if (dp === '.DS_Store') return
+  // fs.readdirSync(config.downloadDir).forEach(dp => {
+  //   if (dp === '.DS_Store') return
 
-    const secDir = path.resolve(config.downloadDir, dp)
-
-    fs.readdirSync(secDir).forEach(fp => {
-      if (!fp.includes('.') && fp.indexOf('ph') === 0) {
-        fs.unlinkSync(path.resolve(secDir, fp))
-      }
-    })
-  })
+  //   const dpath = path.resolve(config.downloadDir, dp)
+  //   const fstat = fs.statSync(dpath)
+  //   if (fstat.isDirectory()) {
+  //     fs.readdirSync(dpath).forEach(fp => {
+  //       if (!fp.includes('.') && fp.indexOf('ph') === 0) {
+  //         fs.unlinkSync(path.resolve(dpath, fp))
+  //       }
+  //     })
+  //   }
+  // })
 
   let page = 1
   let search = cli.flags.search
+
+  if (!search) {
+    console.log('bad arg --search (-s), should be a valid string')
+    process.exit(0)
+  }
 
   const limit = +cli.flags.limit
 
@@ -84,6 +119,8 @@ const run = async () => {
   fs.writeFileSync('./search.log', (new Date().toLocaleString() + '   ') + search + '\n', {
     flag: 'a+', encoding: 'utf-8'
   })
+
+  let downloadCount = 0
 
   // --- download loop ---
   while (downloadedSize <= limit) {
@@ -125,10 +162,13 @@ const run = async () => {
         continue
       }
 
+      downloadCount++
+
       let sizeOfDl = -1
       let fileStoreName = ''
+
       try {
-        result = await scrapy.downloadVideo(info, search)
+        result = await scrapy.downloadVideo(info, search, downloadCount)
         sizeOfDl = +result[1]
         fileStoreName = result[2]
       } catch (error) {
@@ -154,7 +194,7 @@ const run = async () => {
           method: 'aria2.addUri',
           id: strTools.randomStr(48),
           params: [
-            'token:1278950212',
+            'token:<token>',
             [`${config.aria2.localPrefix}/${strTools.transferBadSymbolOnFileName(search)}/${fileStoreName}`],
             {}
           ]
@@ -174,4 +214,25 @@ const run = async () => {
   log('warn', `downloading content size is ${downloadedSize / 1024 / 1024} MB, process auto quit`)
 }
 
-run()
+if (cli.flags.rebuildDlist) {
+  const older = new Set(fs.readFileSync('./dlist.txt').toString().split('\n'))
+  fs.readdirSync(config.downloadDir).forEach(dp => {
+    const dpath = path.resolve(config.downloadDir, dp)
+    const dstat = fs.statSync(dpath)
+    if (dstat.isDirectory()) {
+      fs.readdirSync(dpath).forEach(fp => {
+        const fpath = path.resolve(dpath, fp)
+        const fstat = fs.statSync(fpath)
+        if (fp.includes('.mp4') && fstat.isFile()) {
+          const title = strTools.fileNameToTitle(fp)
+          older.add(title)
+        }
+      })
+    }
+  })
+  fs.writeFileSync('./dlist.txt', Array.from(older).join('\n') + '\n')
+  process.exit(0)
+}
+else {
+  run()
+}

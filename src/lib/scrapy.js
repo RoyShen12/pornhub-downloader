@@ -3,7 +3,7 @@ const fsp = fs.promises
 const path = require('path')
 const os = require('os')
 const vm = require('vm')
-// const sysUtil = require('util')
+// const util = require('util')
 
 /**
  * @type {{ proxyUrl: string, timeout: number, downloadDir: string, httpChunkSizeKB: number }}
@@ -13,12 +13,12 @@ const config = JSON.parse(fs.readFileSync('config.json').toString())
 
 const _ = require('lodash')
 const fse = require('fs-extra')
-const moment = require('moment')
 const hs = require('human-size')
 const disk = require('diskusage')
 const cheerio = require('cheerio')
 const request = require('request')
 const ProgressBar = require('progress')
+// const prettyMilliseconds = require('pretty-ms')
 const progressStream = require('progress-stream')
 const performance = {
   now: require('performance-now')
@@ -31,7 +31,7 @@ const oldFiles = fse.readFileSync('./dlist.txt', 'utf-8').toString().split('\n')
 // in windows, file name should not contain these symbols
 // * : " * ? < > |
 // here is the method to transfer these symbol to leagal ones
-const { transferBadSymbolOnFileName, transferBadSymbolOnPathName } = require('./str')
+const { transferBadSymbolOnFileName, transferBadSymbolOnPathName, fileNameToTitle } = require('./str')
 
 const domain = 'www.pornhub.com'
 const baseUrl = `https://${domain}`
@@ -206,29 +206,49 @@ async function findDownloadInfo(key) {
   })
 }
 
-async function downloadVideo(ditem, folderName) {
+async function downloadVideo(ditem, folderName, downloadCount) {
+  const title = ditem.title.trim()
+  const transferedTitle = transferBadSymbolOnFileName(title)
+  const filename = `${title}_${ditem.quality}P_${ditem.key}.mp4`
+  const transferedFilename = transferBadSymbolOnFileName(filename)
+  const filenameWithRank = `${(downloadCount + '').padStart(4, '0')}_${filename}`
+  const transferedFilenameWithRank = transferBadSymbolOnFileName(filenameWithRank)
 
-  let filename = moment().format('YYYYMMDD')
-
-  filename = ditem.title.trim()
-
-  filename += `_${ditem.quality}P_${ditem.key}.mp4`
   const dir = config.downloadDir + transferBadSymbolOnFileName(folderName)
 
   fs.existsSync(dir) || fs.mkdirSync(dir)
 
   const dst = path.join(dir, filename)
+  const dstWithRank = path.join(dir, filenameWithRank)
+
+  const transferedDst = transferBadSymbolOnPathName(dst)
+  const transferedDstWithRank = transferBadSymbolOnPathName(dstWithRank)
 
   const pm = new Promise((resolve, reject) => {
-    if (fse.existsSync(transferBadSymbolOnPathName(dst))) {
-      return resolve([`${dst} already exists in dl path!`, 0])
+    const thisFolderFiles = fs.readdirSync(dir).filter(f => f[0] !== '.')
+
+    if (global.cli.flags.exclude && title.includes(global.cli.flags.exclude)) {
+      return resolve([`title ${title} excluded by user flag ${global.cli.flags.exclude}`, 0])
     }
-    if (oldFiles.includes(transferBadSymbolOnFileName(filename))) {
-      return resolve([`${dst} already exists in dlist.txt!`, 0])
+    // old
+    if (fse.existsSync(transferedDst)) {
+      // debug scan
+      log('warn', `rename to -> ${filenameWithRank}`)
+      fs.renameSync(transferedDst, transferedDstWithRank)
+      return resolve([`${title} already exists in dl path and has been renamed into new style!`, 0])
     }
+    // new
+    if (thisFolderFiles.some(oldf => fileNameToTitle(oldf) === transferedTitle)) {
+      return resolve([`${title} already exists in dl path!`, 0])
+    }
+    if (oldFiles.includes(transferedTitle)) {
+      return resolve([`${title} already exists in dlist.txt!`, 0])
+    }
+
     let opts = {
       url: ditem.videoUrl
     }
+
     Object.assign(opts, baseReqOpts)
     log('notice', `downloading > ${filename}`)
 
@@ -238,6 +258,9 @@ async function downloadVideo(ditem, folderName) {
         const contentTotalLength = resHeaders['content-length']
 
         if (global.cli.flags.fakerun) return resolve(['fake downloaded!', contentTotalLength])
+        if (global.cli.flags.skipsize && global.cli.flags.skipsize * 1024 * 1024 > contentTotalLength) {
+          return resolve(['detect file of too small size, skip it', 0])
+        }
 
         // disk is full, stop tasks
         const diskusage = await disk.check(os.platform() === 'win32' ? 'c:' : '/')
@@ -276,7 +299,7 @@ async function downloadVideo(ditem, folderName) {
 
           const progress = new ProgressBar('downloading [:bar] :spd/s :percent Piece::piece ETA::etas', {
             incomplete: ' ',
-            width: 60,
+            width: 80,
             total: +contentTotalLength
           })
 
@@ -292,9 +315,22 @@ async function downloadVideo(ditem, folderName) {
             copyOpts.headers['Connection'] = 'keep-alive'
 
             const file = path.join(dir, `${ditem.key}${idx}`)
+
             files.push(file)
+
             // log('info', `downloading the ${(idx + 1 + '').padEnd(maxPiecesL)} / ${ranges.length} piece from ${(item.start + '').padEnd(maxBytesL)} to ${(item.end + '').padEnd(maxBytesL)} ...`)
 
+            // log('debug', `checking ${file}`)
+            if (fs.existsSync(transferBadSymbolOnPathName(file))) {
+              const tmpStat = fs.statSync(transferBadSymbolOnPathName(file))
+              if (tmpStat.size = maxChunkBytes) {
+                log('warn', `detect file ${file} already downloaded, skip.`)
+                idx += 1
+                continue
+              }
+            }
+
+            // ----- request for file frag -----
             let oneFile = null
             while (!oneFile) {
               try {
@@ -336,12 +372,12 @@ async function downloadVideo(ditem, folderName) {
                 log('warn', 'download chunk failed, retry')
               }
             }
-            //console.log(oneFile)
+            // ----- end of request for file frag -----
           }
 
           log('info', 'all pieces have been downloaded, now concat pieces...')
 
-          const ws = fse.createWriteStream(transferBadSymbolOnPathName(dst), { flags: 'a', highWaterMark: 33554432 })
+          const ws = fse.createWriteStream(transferedDstWithRank, { flags: 'a', highWaterMark: 33554432 })
           for (const file of files) {
             const tmpRead = fse.createReadStream(transferBadSymbolOnPathName(file), { flags: 'r', highWaterMark: 2097152 })
             await new Promise((__res, __rej) => {
@@ -357,10 +393,11 @@ async function downloadVideo(ditem, folderName) {
           }
           ws.end()
 
-          fse.writeFileSync('./dlist.txt', transferBadSymbolOnFileName(filename) + '\n', { flag: 'a+', encoding: 'utf-8' })
-          return resolve([`${dst} downloaded!`, contentTotalLength, transferBadSymbolOnFileName(filename)])
-        } else {
-          return resolve(['detect file with too small size, skip it.', 0])
+          fse.writeFileSync('./dlist.txt', transferedTitle + '\n', { flag: 'a+', encoding: 'utf-8' })
+          return resolve([`${dst} downloaded!`, contentTotalLength, transferedFilenameWithRank])
+        }
+        else {
+          return resolve(['skip file less than [httpChunkSizeKB].', 0])
         }
       })
       .on('error', err => {
