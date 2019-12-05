@@ -336,9 +336,10 @@ async function downloadVideo(ditem, folderName, downloadCount) {
               try {
                 oneFile = await (new Promise((resolve, reject) => {
 
-                  const pgStm = progressStream({ time: 250 })
+                  const pgStm = progressStream({ time: 16 })
                   pgStm.on('progress', innerProgress => {
                     downloadedBytes += innerProgress.delta
+                    // console.log(`debug: downloadedBytes ${downloadedBytes}, time dur ${(performance.now() - times) / 1000} sec`)
                     const avgSpeed = hs(downloadedBytes / (performance.now() - times) * 1000)
                     // console.log(`${hs(downloadedBytes)}/${hs(contentTotalLength)} spd:${hs(downloadedBytes / (performance.now() - times) * 1000)}`)
                     progress.tick(innerProgress.delta, {
