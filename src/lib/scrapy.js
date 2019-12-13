@@ -216,7 +216,7 @@ async function downloadVideo(ditem, folderName, downloadCount) {
 
   const dir = config.downloadDir + transferBadSymbolOnFileName(folderName)
 
-  fs.existsSync(dir) || fs.mkdirSync(dir)
+  // fs.existsSync(dir) || fs.mkdirSync(dir)
 
   const dst = path.join(dir, filename)
   const dstWithRank = path.join(dir, filenameWithRank)
@@ -225,7 +225,7 @@ async function downloadVideo(ditem, folderName, downloadCount) {
   const transferedDstWithRank = transferBadSymbolOnPathName(dstWithRank)
 
   const pm = new Promise((resolve, reject) => {
-    const thisFolderFiles = fs.readdirSync(dir).filter(f => f[0] !== '.')
+    const thisFolderFiles = global.cli.flags.fakerun ? [] : fs.readdirSync(dir).filter(f => f[0] !== '.')
 
     if (global.cli.flags.exclude && title.includes(global.cli.flags.exclude)) {
       return resolve([`title ${title} excluded by user flag ${global.cli.flags.exclude}`, 0])

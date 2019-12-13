@@ -79,7 +79,9 @@ const scrapy = require('./lib/scrapy')
 
 const run = async () => {
 
-  fs.existsSync(config.downloadDir) || fs.mkdirSync(config.downloadDir)
+  if (!cli.flags.fakerun) {
+    fs.existsSync(config.downloadDir) || fs.mkdirSync(config.downloadDir)
+  }
 
   // delete last download fragments
   // fs.readdirSync(config.downloadDir).forEach(dp => {
