@@ -35,12 +35,12 @@ const baseUrl = `https://${domain}`
 
 const customHeaders = {
   'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8',
-  // 'Accept-Encoding': 'gzip, deflate, br',
-  // 'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8,ja;q=0.7,zh-TW;q=0.6',
+  'Accept-Encoding': 'gzip, deflate, br',
+  'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8,ja;q=0.7,zh-TW;q=0.6',
   // 'Cache-Control': 'max-age=0',
   // 'Connection': 'keep-alive',
   // 'Cookie': '',
-  // 'DNT': '1',
+  'DNT': '1',
   // 'Host': domain,
   // 'Referer': baseUrl,
   // 'Upgrade-Insecure-Requests': '1',
