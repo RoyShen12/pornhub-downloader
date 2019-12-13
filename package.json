@@ -39,7 +39,7 @@
     "lodash": "^4.17.15",
     "meow": "^5.0.0",
     "performance-now": "^2.1.0",
-    "pretty-ms": "^5.0.0",
+    "pretty-ms": "^5.1.0",
     "progress": "^2.0.3",
     "progress-stream": "^2.0.0",
     "request": "^2.88.0",

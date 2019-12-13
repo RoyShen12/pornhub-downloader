@@ -9,9 +9,12 @@ const fs = require('fs')
 const config = JSON.parse(fs.readFileSync('config.json').toString())
 
 const path = require('path')
+const { performance } = require('perf_hooks')
 
 const axios = require('axios').default
 const logger = require('ya-node-logger')
+
+const prettyMilliseconds = require('pretty-ms')
 
 const meow = require('meow')
 
@@ -22,26 +25,28 @@ const cli = meow(`
       $ node src -s <> [options]
 
     Options
-      --search, -s       Searching key words
-      --exclude, -e      Excluding key words
-      --limit, -l        Limit of download content size (MB)
-      --fakerun, -f      Fake running, won't actually download anything
-      --skipless         Skipping file smaller than given size (MB)
-      --skipmore         Skipping file larger than given size (MB)
-      --rebuild_dlist    Rebuild the dlist.txt by searching the download path
+      --search, -s         Searching key word
+      --exclude, -e        Excluding key word
+      --amount, -a         Only download specified amount of files
+      --limit, -l          Limitation of the downloading content (MB)
+      --fakerun, -f        Fake running (Dry run), won't actually download anything
+      --skipless           Skipping file smaller than the given size (MB)
+      --skipmore           Skipping file larger than the given size (MB)
+      --rebuild_dlist      Rebuild the dlist.txt by searching the download path
 `, {
     flags: {
       search: {
-        type: 'string',
         alias: 's'
       },
       exclude: {
-        type: 'string',
         alias: 'e'
       },
       limit: {
-        type: 'string',
         alias: 'l',
+        default: 'Infinity'
+      },
+      amount: {
+        alias: 'a',
         default: 'Infinity'
       },
       fakerun: {
@@ -49,10 +54,8 @@ const cli = meow(`
         alias: 'f'
       },
       skipless: {
-        type: 'string'
       },
       skipmore: {
-        type: 'string'
       },
       rebuild_dlist: {
         type: 'boolean'
@@ -79,9 +82,7 @@ const scrapy = require('./lib/scrapy')
 
 const run = async () => {
 
-  if (!cli.flags.fakerun) {
-    fs.existsSync(config.downloadDir) || fs.mkdirSync(config.downloadDir)
-  }
+  fs.existsSync(config.downloadDir) || fs.mkdirSync(config.downloadDir)
 
   // delete last download fragments
   // fs.readdirSync(config.downloadDir).forEach(dp => {
@@ -107,15 +108,21 @@ const run = async () => {
   }
 
   const limit = +cli.flags.limit
+  const amountLimit = +cli.flags.amount
 
   if (isNaN(limit)) {
     console.log('bad arg --limit (-l), should be a number')
     process.exit(0)
   }
 
+  if (isNaN(amountLimit)) {
+    console.log('bad arg --amount (-a), should be a number')
+    process.exit(0)
+  }
+
   let downloadedSize = 0
 
-  log('info', `set limit dl size: ${limit}`)
+  log('info', `set limit dl size: ${limit}, dl amount: ${amountLimit}`)
   log('info', `set search key: ${search}`)
 
   fs.writeFileSync('./search.log', (new Date().toLocaleString() + '   ') + search + '\n', {
@@ -125,7 +132,7 @@ const run = async () => {
   let downloadCount = 0
 
   // --- download loop ---
-  while (downloadedSize <= limit) {
+  while (downloadedSize <= limit && downloadCount < amountLimit) {
 
     const opts = {
       page,
@@ -141,7 +148,7 @@ const run = async () => {
     // --- one page loop ---
     for (const key of keys) {
 
-      if (downloadedSize > limit) {
+      if (downloadedSize > limit || downloadCount >= amountLimit) {
         break
       }
 
@@ -213,7 +220,11 @@ const run = async () => {
   }
   // --- endof download loop ---
 
-  log('warn', `downloading content size is ${downloadedSize / 1024 / 1024} MB, process auto quit`)
+  log('suc', `one of the limitation satisfied, process will auto quit
+total time cost: ${prettyMilliseconds(performance.now(), { verbose: true })}
+total download content size: ${(downloadedSize / 1024 / 1024).toFixed(2)} MB`)
+
+  setTimeout(process.exit, 500, 0)
 }
 
 if (cli.flags.rebuildDlist) {

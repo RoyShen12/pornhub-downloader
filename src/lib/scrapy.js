@@ -216,7 +216,9 @@ async function downloadVideo(ditem, folderName, downloadCount) {
 
   const dir = config.downloadDir + transferBadSymbolOnFileName(folderName)
 
-  // fs.existsSync(dir) || fs.mkdirSync(dir)
+  if (!cli.flags.fakerun) {
+    fs.existsSync(dir) || fs.mkdirSync(dir)
+  }
 
   const dst = path.join(dir, filename)
   const dstWithRank = path.join(dir, filenameWithRank)
@@ -263,7 +265,7 @@ async function downloadVideo(ditem, folderName, downloadCount) {
         }
 
         // disk is full, stop tasks
-        const diskusage = await disk.check(os.platform() === 'win32' ? 'c:' : '/')
+        const diskusage = await disk.check(/*os.platform() === 'win32' ? 'c:' : '/'*/config.downloadDir)
         if (diskusage.free < contentTotalLength * 2.1) {
           reject(`incomming video size: ${hs(contentTotalLength)}, which is larger than disk free space: ${hs(diskusage.free)}, process auto quit`)
           return
