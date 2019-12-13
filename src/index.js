@@ -8,6 +8,7 @@ const fs = require('fs')
  */
 const config = JSON.parse(fs.readFileSync('config.json').toString())
 
+const os = require('os')
 const path = require('path')
 const { performance } = require('perf_hooks')
 
@@ -26,12 +27,13 @@ const cli = meow(`
     Options
       --search, -s         Searching key word
       --exclude, -e        Excluding key word
-      --amount, -a         Only download specified amount of files
-      --limit, -l          Limitation of the downloading content (MB)
+      --amount, -a         Only download specified amount of files, default is Infinity
+      --limit, -l          Limitation of the downloading content (MB), default is Infinity
       --fakerun, -f        Fake running (Dry run), won't actually download anything
       --skipless           Skipping file smaller than the given size (MB)
       --skipmore           Skipping file larger than the given size (MB)
       --rebuild_dlist      Rebuild the dlist.txt by searching the download path
+      --verbose            Make the process more talkative
 `, {
     flags: {
       search: {
@@ -53,10 +55,15 @@ const cli = meow(`
         alias: 'f'
       },
       skipless: {
+        default: '0'
       },
       skipmore: {
+        default: 'Infinity'
       },
       rebuild_dlist: {
+        type: 'boolean'
+      },
+      verbose: {
         type: 'boolean'
       }
     }
@@ -74,7 +81,10 @@ if (cli.flags.skipmore && isNaN(+cli.flags.skipmore)) {
 
 global.cli = cli
 
-logger.initNewLogger('main', '.', 'log-', '', true, (t, m) => console.log(logger.logLevelToColor(t)(m)))
+const tmpp = path.resolve(os.tmpdir(), strTools.randomStr(16))
+fs.existsSync(tmpp) || fs.mkdirSync(tmpp)
+
+logger.initNewLogger('main', tmpp, 'log-', '', true, (t, m) => console.log(logger.logLevelToColor(t)(m)))
 const log = logger.getLogger('main')
 
 const scrapy = require('./lib/scrapy')
@@ -194,7 +204,7 @@ const run = async () => {
       }
 
       log('suc', result[0])
-      log('verbose', `this turn has downloaded ${hs(sizeOfDl)} MB, total download size: ${hs(downloadedSize)} MB`)
+      log('verbose', `this turn has downloaded ${hs(sizeOfDl)}, total download size: ${hs(downloadedSize)}`)
 
       if (config.aria2 && config.aria2.address && fileStoreName) {
         axios.post(config.aria2.address, {
@@ -221,7 +231,7 @@ const run = async () => {
 
   log('suc', `one of the limitation satisfied, process will auto quit
 total time cost: ${prettyMilliseconds(performance.now(), { verbose: true })}
-total download content size: ${hs(downloadedSize)} MB`)
+total download content size: ${hs(downloadedSize)}`)
 
   setTimeout(process.exit, 500, 0)
 }
