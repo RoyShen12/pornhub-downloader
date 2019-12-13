@@ -1,7 +1,7 @@
 const fs = require('fs')
 const fsp = fs.promises
 const path = require('path')
-const os = require('os')
+// const os = require('os')
 const vm = require('vm')
 // const util = require('util')
 
@@ -18,11 +18,8 @@ const disk = require('diskusage')
 const cheerio = require('cheerio')
 const request = require('request')
 const ProgressBar = require('progress')
-// const prettyMilliseconds = require('pretty-ms')
 const progressStream = require('progress-stream')
-const performance = {
-  now: require('performance-now')
-}
+const { performance } = require('perf_hooks')
 
 const log = require('ya-node-logger').getLogger('main')
 
@@ -210,7 +207,7 @@ async function downloadVideo(ditem, folderName, downloadCount) {
   const title = ditem.title.trim()
   const transferedTitle = transferBadSymbolOnFileName(title)
   const filename = `${title}_${ditem.quality}P_${ditem.key}.mp4`
-  const transferedFilename = transferBadSymbolOnFileName(filename)
+  // const transferedFilename = transferBadSymbolOnFileName(filename)
   const filenameWithRank = `${(downloadCount + '').padStart(4, '0')}_${filename}`
   const transferedFilenameWithRank = transferBadSymbolOnFileName(filenameWithRank)
 

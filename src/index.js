@@ -13,9 +13,8 @@ const { performance } = require('perf_hooks')
 
 const axios = require('axios').default
 const logger = require('ya-node-logger')
-
+const hs = require('human-size')
 const prettyMilliseconds = require('pretty-ms')
-
 const meow = require('meow')
 
 const strTools = require('./lib/str')
@@ -122,7 +121,7 @@ const run = async () => {
 
   let downloadedSize = 0
 
-  log('info', `set limit dl size: ${limit}, dl amount: ${amountLimit}`)
+  log('info', `set limit dl size: ${limit} MB, dl amount: ${amountLimit}`)
   log('info', `set search key: ${search}`)
 
   fs.writeFileSync('./search.log', (new Date().toLocaleString() + '   ') + search + '\n', {
@@ -195,7 +194,7 @@ const run = async () => {
       }
 
       log('suc', result[0])
-      log('verbose', `this turn has downloaded ${(sizeOfDl / 1024 / 1024).toFixed(3)} MB, total download size: ${(downloadedSize / 1024 / 1024).toFixed(3)} MB`)
+      log('verbose', `this turn has downloaded ${hs(sizeOfDl)} MB, total download size: ${hs(downloadedSize)} MB`)
 
       if (config.aria2 && config.aria2.address && fileStoreName) {
         axios.post(config.aria2.address, {
@@ -222,7 +221,7 @@ const run = async () => {
 
   log('suc', `one of the limitation satisfied, process will auto quit
 total time cost: ${prettyMilliseconds(performance.now(), { verbose: true })}
-total download content size: ${(downloadedSize / 1024 / 1024).toFixed(2)} MB`)
+total download content size: ${hs(downloadedSize)} MB`)
 
   setTimeout(process.exit, 500, 0)
 }
