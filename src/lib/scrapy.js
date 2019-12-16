@@ -206,7 +206,7 @@ async function findDownloadInfo(key) {
 async function downloadVideo(ditem, folderName, downloadCount) {
   const title = ditem.title.trim()
   const transferedTitle = transferBadSymbolOnFileName(title)
-  const filename = `${title}_${ditem.quality}P_${ditem.key}.mp4`
+  const filename = `${transferedTitle}_${ditem.quality}P_${ditem.key}.mp4`
   // const transferedFilename = transferBadSymbolOnFileName(filename)
   const filenameWithRank = `${(downloadCount + '').padStart(4, '0')}_${filename}`
   const transferedFilenameWithRank = transferBadSymbolOnFileName(filenameWithRank)
