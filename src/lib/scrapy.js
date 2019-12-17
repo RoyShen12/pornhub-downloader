@@ -245,7 +245,9 @@ async function downloadVideo(ditem, folderName, downloadCount) {
     }
 
     let opts = {
-      url: ditem.videoUrl
+      url: ditem.videoUrl,
+      headers: customHeaders,
+      gzip: true
     }
 
     Object.assign(opts, baseReqOpts)
