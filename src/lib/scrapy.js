@@ -256,7 +256,7 @@ async function downloadVideo(ditem, folderName, downloadCount) {
     return request.get(opts)
       .on('response', async resp => {
         const resHeaders = resp.headers
-        const contentTotalLength = resHeaders['content-length']
+        const contentTotalLength = +resHeaders['content-length']
 
         if (global.cli.flags.fakerun) return resolve(['fake downloaded!', contentTotalLength])
         if (global.cli.flags.skipsize && global.cli.flags.skipsize * 1024 * 1024 > contentTotalLength) {
@@ -273,9 +273,13 @@ async function downloadVideo(ditem, folderName, downloadCount) {
         }
 
         if (contentTotalLength > maxChunkBytes) {
+
+          /**
+           * @type {{ start: number, end: number }[]}
+           */
           const ranges = []
-          const chunkCount = parseInt(contentTotalLength / maxChunkBytes)
-          const mod = parseInt(contentTotalLength % maxChunkBytes)
+          const chunkCount = Math.floor(contentTotalLength / maxChunkBytes)
+          const mod = contentTotalLength % maxChunkBytes
 
           for (let i = 0; i < chunkCount; i++) {
             const rg = {
@@ -292,7 +296,8 @@ async function downloadVideo(ditem, folderName, downloadCount) {
             }
             ranges.push(rg)
           }
-          ranges[ranges.length - 1].end = ranges[ranges.length - 1].end - 1
+
+          _.last(ranges).end--
 
           // log('info', `the file is splitted to ${ranges.length} pieces`)
           const times = performance.now()
@@ -301,7 +306,7 @@ async function downloadVideo(ditem, folderName, downloadCount) {
           const progress = new ProgressBar('downloading [:bar] :spd/s :percent Piece::piece ETA::etas', {
             incomplete: ' ',
             width: 80,
-            total: +contentTotalLength
+            total: contentTotalLength
           })
 
           const files = []
@@ -327,6 +332,7 @@ async function downloadVideo(ditem, folderName, downloadCount) {
               if (tmpStat.size = maxChunkBytes) {
                 log('warn', `detect file ${file} already downloaded, skip.`)
                 idx += 1
+                progress.tick(maxChunkBytes)
                 continue
               }
             }
@@ -399,7 +405,7 @@ async function downloadVideo(ditem, folderName, downloadCount) {
           return resolve([`${dst} downloaded!`, contentTotalLength, transferedFilenameWithRank])
         }
         else {
-          return resolve(['skip file less than [httpChunkSizeKB].', 0])
+          return resolve(['skip small file (size less than [httpChunkSizeKB]).', 0])
         }
       })
       .on('error', err => {

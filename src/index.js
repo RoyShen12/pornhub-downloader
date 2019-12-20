@@ -89,6 +89,22 @@ const log = logger.getLogger('main')
 
 const scrapy = require('./lib/scrapy')
 
+let processShutdownToken = false
+
+const stdin = process.stdin
+
+stdin.setEncoding('utf8')
+stdin.on('readable', function() {
+  var chunk = process.stdin.read();
+  //
+  // Restart process when user inputs stop
+  //
+  if (chunk !== null && chunk === 'stop\n' || chunk === 'stop\r\n') {
+    log('alert', 'process will shutdown after current download finish.')
+    processShutdownToken = true
+  }
+})
+
 const run = async () => {
 
   fs.existsSync(config.downloadDir) || fs.mkdirSync(config.downloadDir)
@@ -133,6 +149,7 @@ const run = async () => {
 
   log('info', `set limit dl size: ${limit} MB, dl amount: ${amountLimit}`)
   log('info', `set search key: ${search}`)
+  log('notice', 'input stop to end after the current download task finish.')
 
   fs.writeFileSync('./search.log', (new Date().toLocaleString() + '   ') + search + '\n', {
     flag: 'a+', encoding: 'utf-8'
@@ -157,7 +174,7 @@ const run = async () => {
     // --- one page loop ---
     for (const key of keys) {
 
-      if (downloadedSize > limit || downloadCount >= amountLimit) {
+      if (downloadedSize > limit || downloadCount >= amountLimit || processShutdownToken) {
         break
       }
 
