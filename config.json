@@ -1,7 +1,7 @@
 {
   "proxyUrl": "http://127.0.0.1:8118",
   "timeout": 0,
-  "downloadDir": "/Volumes/External/杂项/爬虫/PH爬虫/",
+  "downloadDir": "./downloads/",
   "httpChunkSizeKB": 1024,
   "aria2": {
     "address": "",
