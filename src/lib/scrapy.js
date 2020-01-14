@@ -21,9 +21,13 @@ const prettyMilliseconds = require('pretty-ms')
 const ProgressBar = require('progress')
 const progressStream = require('progress-stream')
 
+const downloadText = process.env.LANG.includes('zh_CN') ? '下载' : 'downloading'
+const eatText = process.env.LANG.includes('zh_CN') ? '剩余' : 'EAT'
+const pieceText = process.env.LANG.includes('zh_CN') ? '块' : 'Piece'
+
 const { performance } = require('perf_hooks')
 
-const log = require('ya-node-logger').getLogger('main')
+const log = require('./logger').getLogger('main')
 
 const oldFiles = fs.readFileSync('./dlist.txt', 'utf-8').toString().split('\n')
 
@@ -32,36 +36,7 @@ const oldFiles = fs.readFileSync('./dlist.txt', 'utf-8').toString().split('\n')
 // here is the method to transfer these symbol to leagal ones
 const { transferBadSymbolOnFileName, transferBadSymbolOnPathName, fileNameToTitle } = require('./str')
 
-/**
- * @param {string} c
- */
-const vblog = c => {
-  if (global.cli.flags.verbose) {
-    c = c.replace(/\[(\w+)\]/, chalk.cyanBright('[$1]'))
-    c = c.replace(/<(\w+)>/, chalk.magentaBright('<$1>'))
-    c = chalk.gray('(debug) ') + c
-    console.log(c)
-  }
-}
-
-/**
- * @type {Map<string, number>}
- */
-vblog.watches = new Map()
-
-/**
- * @param {string} name
- */
-vblog.stopWatch = name => {
-  if (vblog.watches.has(name)) {
-    const tm = performance.now() - vblog.watches.get(name)
-    vblog.watches.delete(name)
-    return tm
-  }
-  else {
-    vblog.watches.set(name, performance.now())
-  }
-}
+const vblog = require('./verbose')
 
 const domain = 'www.pornhub.com'
 const baseUrl = `https://${domain}`
@@ -97,6 +72,7 @@ if (config.timeout > 0) {
 const httpChunkBytes = (config.httpChunkSizeKB || 2048) * 1024
 
 async function findKeys(opts) {
+  vblog.stopWatch('findKeys-requests', true)
   vblog(`[findKeys] entered, opt=${util.inspect(opts, false, Infinity, true)}`)
 
   const pm = new Promise((resolve, reject) => {
@@ -144,7 +120,8 @@ async function findKeys(opts) {
 
       const retKeys = allKeys.filter(k => !skipKeys.includes(k))
 
-      vblog(`[findKeys] exits with ret=${util.inspect(retKeys, false, Infinity, true)} inside Promise`)
+      const tm = chalk.redBright(prettyMilliseconds(vblog.stopWatch('findKeys-requests', false), { verbose: true }))
+      vblog(`[findKeys] exits with ret=${util.inspect(retKeys, false, Infinity, true)} inside Promise, time cost ${tm}`)
 
       return resolve(retKeys)
     })
@@ -157,6 +134,7 @@ async function findKeys(opts) {
  * @param {string} bodyStr
  */
 function findTitle(bodyStr) {
+  vblog.stopWatch('findTitle', true)
   vblog(`[findTitle] entered, (bodyStr length=${bodyStr.length})`)
 
   const $ = cheerio.load(bodyStr)
@@ -167,9 +145,10 @@ function findTitle(bodyStr) {
   const arr = title.split('-')
   arr.pop()
 
-  const ret = arr.join('-')
+  const ret = arr.join('-').trim()
 
-  vblog(`[findTitle] exits with ret=${ret}`)
+  const tm = chalk.redBright(prettyMilliseconds(vblog.stopWatch('findTitle', false), { verbose: true }))
+  vblog(`[findTitle] exits with ret=${ret}, time cost ${tm}`)
 
   return ret
 }
@@ -178,6 +157,7 @@ function findTitle(bodyStr) {
  * @param {string} bodyStr
  */
 function parseDownloadInfo(bodyStr) {
+  vblog.stopWatch('parseDIF', true)
   vblog(`[parseDownloadInfo] entered, (bodyStr length=${bodyStr.length})`)
 
   let info
@@ -224,7 +204,8 @@ function parseDownloadInfo(bodyStr) {
       const ret = arr[0]
       ret.title = findTitle(bodyStr)
 
-      vblog(`[parseDownloadInfo] exits with ret=${util.inspect(ret, false, Infinity, true)}`)
+      const tm = chalk.redBright(prettyMilliseconds(vblog.stopWatch('parseDIF', false), { verbose: true }))
+      vblog(`[parseDownloadInfo] exits with ret=${util.inspect(ret, false, Infinity, true)}, time cost ${tm}`)
 
       return ret
     }
@@ -239,6 +220,7 @@ function parseDownloadInfo(bodyStr) {
 }
 
 async function findDownloadInfo(key) {
+  vblog.stopWatch('findDF', true)
   vblog(`[findDownloadInfo] entered with key=${key}`)
 
   let finalKey = key
@@ -267,7 +249,9 @@ async function findDownloadInfo(key) {
       if (ditem) {
         ditem.key = finalKey
       }
-      vblog(`[findDownloadInfo] exits with ret=${util.inspect(ditem, false, Infinity, true)} inside Promise`)
+
+      const tm = chalk.redBright(prettyMilliseconds(vblog.stopWatch('findDF', false), { verbose: true }))
+      vblog(`[findDownloadInfo] exits with ret=${util.inspect(ditem, false, Infinity, true)} inside Promise, time cost ${tm}`)
 
       return resolve(ditem)
     })
@@ -275,10 +259,14 @@ async function findDownloadInfo(key) {
 }
 
 async function downloadVideo(ditem, folderName, downloadCount) {
-  vblog.stopWatch('scrapy.js-downloadVideo')
+  vblog.stopWatch('scrapy.js-downloadVideo', true)
   vblog(`[downloadVideo] entered with ditem=${util.inspect(ditem, false, Infinity, true)}, folderName=${folderName}, downloadCount=${downloadCount}`)
 
+  /** @type {string} */
   const title = ditem.title.trim()
+
+  const shortTitle = title.length <= 20 ? title : (title.substr(0, 17) + '...')
+
   const transferedTitle = transferBadSymbolOnFileName(title)
   const filename = `${transferedTitle}_${ditem.quality}P_${ditem.key}.mp4`
   // const transferedFilename = transferBadSymbolOnFileName(filename)
@@ -329,7 +317,7 @@ async function downloadVideo(ditem, folderName, downloadCount) {
 
     Object.assign(opts, baseReqOpts)
 
-    log('notice', `downloading > ${filename}`)
+    log('notice', `ready to downloading > ${filename}`)
 
     vblog(`[downloadVideo] <in Promise> requests with opt=${util.inspect(opts, false, Infinity, true)}`)
 
@@ -338,7 +326,7 @@ async function downloadVideo(ditem, folderName, downloadCount) {
         const resHeaders = resp.headers
         const contentTotalLength = +resHeaders['content-length']
 
-        vblog(`[downloadVideo] <in Promise> getting Header.content-length=${contentTotalLength} (${hs(contentTotalLength)})`)
+        vblog(`[downloadVideo] <in Promise> getting Header.content-length=${contentTotalLength} (${hs(contentTotalLength, 3)})`)
 
         if (global.cli.flags.fakerun) return resolve(['fake downloaded!', contentTotalLength])
         if (global.cli.flags.skipsize && global.cli.flags.skipsize * 1024 * 1024 > contentTotalLength) {
@@ -349,11 +337,11 @@ async function downloadVideo(ditem, folderName, downloadCount) {
         const diskusage = await disk.check(/*os.platform() === 'win32' ? 'c:' : '/'*/config.downloadDir)
 
         if (diskusage.free < contentTotalLength * 2.1) {
-          reject(`incomming video size: ${hs(contentTotalLength)}, which is larger than disk free space: ${hs(diskusage.free)}, process auto quit`)
+          reject(`incomming video size: ${hs(contentTotalLength, 1)}, which is larger than disk free space: ${hs(diskusage.free, 1)}, process auto quit`)
           return
         }
         else {
-          log('verbose', `disk free space: ${hs(diskusage.free)}.\n`)
+          log('verbose', `disk free space: ${hs(diskusage.free, 1)}.\n`)
         }
 
         //if (contentTotalLength > httpChunkBytes) {
@@ -368,27 +356,38 @@ async function downloadVideo(ditem, folderName, downloadCount) {
 
         for (let i = 0; i < _chunkCount; i++) {
           ranges.push({
-            start: i === 0 ? 0 : i * httpChunkBytes + 1,
-            end: (i + 1) * httpChunkBytes
+            start: i * httpChunkBytes,
+            end: (i + 1) * httpChunkBytes - 1
           })
         }
 
         if (_mod > 0) {
           ranges.push({
-            start: _chunkCount === 0 ? 0 : _chunkCount * httpChunkBytes + 1,
+            start: _chunkCount * httpChunkBytes,
             end: contentTotalLength - 1
           })
         }
 
-        vblog(`[downloadVideo] <in Promise> generated ranges=${util.inspect(ranges, false, Infinity, true)}`)
+        const rl = ranges.length
+        const rll = (rl + '').length
+        const vblogRanges = ranges.map((r, i) => `  piece: ${((i + 1) + '').padStart(rll)}/${rl}, range: ${chalk.yellowBright(r.start)} - ${chalk.yellowBright(r.end)}${i !== rl - 1 ? ',' : ''}`).join('\n')
 
-        // log('info', `the file is splitted to ${ranges.length} pieces`)
+        vblog(`[downloadVideo] <in Promise> generated ranges=\n${vblogRanges}`)
+
+        /**
+         * Start time
+         */
         const times = performance.now()
+
+        /**
+         * Total downloaded size
+         */
         let downloadedBytes = 0
 
-        const progress = new ProgressBar('downloading [:bar] :spd/s :percent Piece::piece ETA::etas', {
-          incomplete: ' ',
-          width: 80,
+        const progressBar = new ProgressBar(`${downloadText} ${shortTitle} [:bar] :spd/s ${pieceText}::piece :percent ${eatText}::etas`, {
+          incomplete: '-',
+          complete: 'x',
+          width: process.stdout.columns - 90,
           total: contentTotalLength
         })
 
@@ -399,8 +398,8 @@ async function downloadVideo(ditem, folderName, downloadCount) {
         // const maxBytesL = (contentTotalLength + '').length
 
         for (const item of ranges) {
-          vblog.stopWatch('scrapy.js-downloadVideo-piece')
-          vblog(`[downloadVideo] <in Promise> for...of at range=(${item.start}, ${item.end})`)
+          vblog.stopWatch('scrapy.js-downloadVideo-piece', true)
+          vblog(`[downloadVideo] <in Promise> for...of at range=(${item.start}, ${item.end}) entered`)
 
           const copyOpts = _.cloneDeep(opts)
           copyOpts.headers['Range'] = `bytes=${item.start}-${item.end}`
@@ -414,14 +413,17 @@ async function downloadVideo(ditem, folderName, downloadCount) {
 
           // log('info', `downloading the ${(idx + 1 + '').padEnd(maxPiecesL)} / ${ranges.length} piece from ${(item.start + '').padEnd(maxBytesL)} to ${(item.end + '').padEnd(maxBytesL)} ...`)
 
-          // log('debug', `checking ${file}`)
           if (fs.existsSync(transferBadSymbolOnPathName(file))) {
             const tmpStat = fs.statSync(transferBadSymbolOnPathName(file))
-            if (tmpStat.size = httpChunkBytes) {
-              log('warn', `detect file ${file} already downloaded, skip.`)
+            vblog(`[downloadVideo] <in Promise> for...of check file piece(${idx}/${ranges.length}) ${chalk.greenBright('(Exists)')} (Size: ${chalk.blueBright(tmpStat.size)})`)
+            if (tmpStat.size === httpChunkBytes) {
+              log('warn', `detect file ${file} (piece ${idx}/${ranges.length}) already downloaded, skip it`)
               idx += 1
-              progress.tick(httpChunkBytes)
+              progressBar.tick(httpChunkBytes)
               continue
+            }
+            else {
+              vblog(`file ${file} (piece ${idx}/${ranges.length}) exists but ${chalk.yellowBright('Incomplete')}, redownload it`)
             }
           }
 
@@ -433,40 +435,36 @@ async function downloadVideo(ditem, folderName, downloadCount) {
             try {
               oneFile = await (new Promise((resolve, reject) => {
 
-                const pgStm = progressStream({ time: 16 })
-
-                pgStm.on('progress', innerProgress => {
-                  downloadedBytes += innerProgress.delta
-                  // console.log(`debug: downloadedBytes ${downloadedBytes}, time dur ${(performance.now() - times) / 1000} sec`)
-                  const avgSpeed = hs(downloadedBytes / (performance.now() - times) * 1000)
-                  // console.log(`${hs(downloadedBytes)}/${hs(contentTotalLength)} spd:${hs(downloadedBytes / (performance.now() - times) * 1000)}`)
-                  progress.tick(innerProgress.delta, {
-                    spd: avgSpeed,
-                    piece: `${idx}/${ranges.length}`
-                  })
-                  // console.log(downloadedBytes, contentTotalLength)
-                })
-
                 vblog(`[downloadVideo] <in Promise> for...of requests for file piece(${idx}/${ranges.length}) with opt=${util.inspect(copyOpts, false, Infinity, true)}, pipe to ${transferBadSymbolOnPathName(file)}`)
 
                 request.get(copyOpts)
+                  .on('error', err => {
+                    vblog(`[downloadVideo] <in Promise> for...of requests for file piece(${idx}/${ranges.length}) failed because of ${util.inspect(err, false, 3, true)}`)
+                    reject(err)
+                  })
                   .on('response', resp => {
                     vblog(`[downloadVideo] <in Promise> for...of request for file piece(${idx}/${ranges.length}) responed with
 Code=${resp.statusCode}
 Header=${util.inspect(resp.headers, false, 2, true)}`)
                   })
-                  .pipe(pgStm)
+                  .pipe(progressStream({ time: 16 }))
                   .on('error', err => {
                     reject(err)
                   })
+                  .on('progress', innerProgress => {
+                    downloadedBytes += innerProgress.delta
+                    const avgSpeed = hs(downloadedBytes / (performance.now() - times) * 1000, 1)
+                    progressBar.tick(innerProgress.delta, {
+                      spd: avgSpeed,
+                      piece: `${idx}/${ranges.length}`
+                    })
+                  })
                   .pipe(
-                    fs.createWriteStream(
-                      transferBadSymbolOnPathName(file),
-                      {
-                        encoding: 'binary'
-                      }
-                    )
+                    fs.createWriteStream(transferBadSymbolOnPathName(file), { encoding: 'binary' })
                   )
+                  .on('error', err => {
+                    reject(err)
+                  })
                   .on('close', () => {
                     vblog(`[downloadVideo] <in Promise> for...of request for file piece(${idx}/${ranges.length}) ended, Stream closed`)
                     resolve(`file${idx} has been downloaded!`)
@@ -474,18 +472,19 @@ Header=${util.inspect(resp.headers, false, 2, true)}`)
               }))
 
               idx += 1
+
             } catch (error) {
               oneFile = null
               log('err', error, true)
-              log('warn', 'download chunk failed, will soon retry')
+              log('alert', 'download chunk failed, will soon retry')
             }
           }
           // ----- end of while
           // ----- end of request for file frag -----
-          const tmr = vblog.stopWatch('scrapy.js-downloadVideo-piece')
+          const tmr = vblog.stopWatch('scrapy.js-downloadVideo-piece', false)
           const tmc = chalk.yellowBright(tmr.toFixed(1))
-          const avs = chalk.redBright(hs(httpChunkBytes / tmr * 1000))
-          vblog(`[downloadVideo] <in Promise> for...of piece(${idx}/${ranges.length}) time cost ${tmc} ms, speed ${avs}/s`)
+          const avs = chalk.redBright(hs(httpChunkBytes / tmr * 1000, 1))
+          vblog(`[downloadVideo] <in Promise> for...of piece(${idx}/${ranges.length}) exits, time cost ${tmc} ms, speed ${avs}/s`)
         }
 
         log('info', 'all pieces have been downloaded, now concat pieces...')
@@ -521,7 +520,7 @@ Header=${util.inspect(resp.headers, false, 2, true)}`)
         const ret = [`${dst} downloaded!`, contentTotalLength, transferedFilenameWithRank]
 
         vblog(`[downloadVideo] exits with ret=${util.inspect(ret, false, Infinity, true)} inside Promise`)
-        vblog(`[downloadVideo] time cost ${chalk.yellowBright(prettyMilliseconds(vblog.stopWatch('scrapy.js-downloadVideo'), { verbose: true }))}`)
+        vblog(`[downloadVideo] time cost ${chalk.yellowBright(prettyMilliseconds(vblog.stopWatch('scrapy.js-downloadVideo', false), { verbose: true }))}`)
 
         return resolve(ret)
         //}

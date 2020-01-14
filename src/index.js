@@ -9,15 +9,17 @@ const fs = require('fs')
 const config = JSON.parse(fs.readFileSync('config.json').toString())
 
 const os = require('os')
+// const util = require('util')
 const path = require('path')
 const { performance } = require('perf_hooks')
 
 const axios = require('axios').default
-const logger = require('ya-node-logger')
+const logger = require('./lib/logger')
 const hs = require('human-size')
 const prettyMilliseconds = require('pretty-ms')
 const meow = require('meow')
 
+const vblog = require('./lib/verbose')
 const strTools = require('./lib/str')
 
 const cli = meow(`
@@ -84,7 +86,7 @@ global.cli = cli
 const tmpp = path.resolve(os.tmpdir(), strTools.randomStr(16))
 fs.existsSync(tmpp) || fs.mkdirSync(tmpp)
 
-logger.initNewLogger('main', tmpp, 'log-', '', true, (t, m) => console.log(logger.logLevelToColor(t)(m)))
+logger.initNewLogger('main', (t, m) => console.log(logger.logLevelToColor(t)(m)))
 const log = logger.getLogger('main')
 
 const scrapy = require('./lib/scrapy')
@@ -106,8 +108,10 @@ stdin.on('readable', function() {
 })
 
 const run = async () => {
+  vblog('[main run] entered')
 
   fs.existsSync(config.downloadDir) || fs.mkdirSync(config.downloadDir)
+  fs.existsSync('./dlist.txt') || fs.writeFileSync('./dlist.txt', '')
 
   // delete last download fragments
   // fs.readdirSync(config.downloadDir).forEach(dp => {
@@ -165,6 +169,8 @@ const run = async () => {
       search
     }
 
+    vblog('[main download] while loop entered')
+
     const keys = await scrapy.findKeys(opts)
 
     if (!Array.isArray(keys) || keys.length === 0) {
@@ -173,6 +179,7 @@ const run = async () => {
 
     // --- one page loop ---
     for (const key of keys) {
+      vblog(`[main download] for...of loop entered, key=${key}`)
 
       if (downloadedSize > limit || downloadCount >= amountLimit || processShutdownToken) {
         break
