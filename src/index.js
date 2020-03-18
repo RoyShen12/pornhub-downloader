@@ -25,9 +25,11 @@ const strTools = require('./lib/str')
 const cli = meow(`
     Usage
       $ node src -s <> [options]
+      $ node src -k <> [options]
 
     Options
       --search, -s         Searching key word
+      --key, -k            Sprightly download target video from given key
       --exclude, -e        Excluding key word
       --amount, -a         Only download specified amount of files, default is Infinity
       --limit, -l          Limitation of the downloading content (MB), default is Infinity
@@ -40,6 +42,9 @@ const cli = meow(`
     flags: {
       search: {
         alias: 's'
+      },
+      key: {
+        alias: 'k'
       },
       exclude: {
         alias: 'e'
@@ -113,151 +118,153 @@ const run = async () => {
   fs.existsSync(config.downloadDir) || fs.mkdirSync(config.downloadDir)
   fs.existsSync('./dlist.txt') || fs.writeFileSync('./dlist.txt', '')
 
-  // delete last download fragments
-  // fs.readdirSync(config.downloadDir).forEach(dp => {
-  //   if (dp === '.DS_Store') return
-
-  //   const dpath = path.resolve(config.downloadDir, dp)
-  //   const fstat = fs.statSync(dpath)
-  //   if (fstat.isDirectory()) {
-  //     fs.readdirSync(dpath).forEach(fp => {
-  //       if (!fp.includes('.') && fp.indexOf('ph') === 0) {
-  //         fs.unlinkSync(path.resolve(dpath, fp))
-  //       }
-  //     })
-  //   }
-  // })
-
   let page = 1
-  let search = cli.flags.search
+  const { search, key } = cli.flags
 
-  if (!search) {
-    console.log('bad arg --search (-s), should be a valid string')
+
+  if (!search && !key) {
+    console.log('cannot run with both --search and --key flags are not given!')
     process.exit(0)
   }
 
-  const limit = +cli.flags.limit
-  const amountLimit = +cli.flags.amount
-
-  if (isNaN(limit)) {
-    console.log('bad arg --limit (-l), should be a number')
+  // Key Mode
+  if (key) {
+    try {
+      const info = await scrapy.findDownloadInfo(key)
+      const result = await scrapy.downloadVideo(info, '')
+      log('suc', result[0])
+    } catch (error) {
+      console.error(error)
+    }
+    log('suc', 'task finished.')
     process.exit(0)
   }
+  // Search Mode
+  else {
+    const limit = +cli.flags.limit
+    const amountLimit = +cli.flags.amount
 
-  if (isNaN(amountLimit)) {
-    console.log('bad arg --amount (-a), should be a number')
-    process.exit(0)
-  }
-
-  let downloadedSize = 0
-
-  log('info', `set limit dl size: ${limit} MB, dl amount: ${amountLimit}`)
-  log('info', `set search key: ${search}`)
-  log('notice', 'input stop to end after the current download task finish.')
-
-  fs.writeFileSync('./search.log', (new Date().toLocaleString() + '   ') + search + '\n', {
-    flag: 'a+', encoding: 'utf-8'
-  })
-
-  let downloadCount = 0
-
-  // --- download loop ---
-  while (downloadedSize <= limit && downloadCount < amountLimit) {
-
-    const opts = {
-      page,
-      search
+    if (isNaN(limit)) {
+      console.log('bad arg --limit (-l), should be a number')
+      process.exit(0)
     }
 
-    vblog('[main download] while loop entered')
-
-    const keys = await scrapy.findKeys(opts)
-
-    if (!Array.isArray(keys) || keys.length === 0) {
-      throw new Error('find nothing!')
+    if (isNaN(amountLimit)) {
+      console.log('bad arg --amount (-a), should be a number')
+      process.exit(0)
     }
 
-    // --- one page loop ---
-    for (const key of keys) {
-      vblog(`[main download] for...of loop entered, key=${key}`)
+    let downloadedSize = 0
 
-      if (downloadedSize > limit || downloadCount >= amountLimit || processShutdownToken) {
-        break
+    log('info', `set limit dl size: ${limit} MB, dl amount: ${amountLimit}`)
+    log('info', `set search key: ${search}`)
+    log('notice', 'input "stop" to terminate this program after the current download task finished.')
+
+    fs.writeFileSync('./search.log', (new Date().toLocaleString() + '   ') + search + '\n', {
+      flag: 'a+', encoding: 'utf-8'
+    })
+
+    let downloadCount = 0
+
+    // --- download loop ---
+    while (downloadedSize <= limit && downloadCount < amountLimit) {
+
+      const opts = {
+        page,
+        search
       }
 
-      let info = null
-      let result = null
+      vblog('[main download] while loop entered')
 
-      while (!info) {
+      const keys = await scrapy.findKeys(opts)
 
-        try {
-          info = await scrapy.findDownloadInfo(key)
-        } catch (error) {
-          log('error', 'error occured in function [findDownloadInfo], will retry')
-          info = null
-          log('error', error, true)
+      if (!Array.isArray(keys) || keys.length === 0) {
+        throw new Error('scrapy.findKeys: find nothing!')
+      }
+
+      // --- one page loop ---
+      for (const key of keys) {
+        vblog(`[main download] for...of loop entered, key=${key}`)
+
+        if (downloadedSize > limit || downloadCount >= amountLimit || processShutdownToken) {
+          break
         }
-      }
 
-      if (!info.title || info.title.trim().length === 0) {
-        log('warn', 'cannot find video title.')
-        continue
-      }
+        let info = null
+        let result = null
 
-      downloadCount++
+        while (!info) {
 
-      let sizeOfDl = -1
-      let fileStoreName = ''
+          try {
+            info = await scrapy.findDownloadInfo(key)
+          } catch (error) {
+            log('error', 'error occured in function [findDownloadInfo], will retry')
+            info = null
+            log('error', error, true)
+          }
+        }
 
-      try {
-        result = await scrapy.downloadVideo(info, search, downloadCount)
-        sizeOfDl = +result[1]
-        fileStoreName = result[2]
-      } catch (error) {
-        log('error', 'error occured in function [downloadVideo]:')
-        log('error', error, true)
-        if (error.toString().includes('disk')) {
-          process.exit(22)
-        } else {
+        if (!info.title || info.title.trim().length === 0) {
+          log('warn', 'cannot find video title.')
           continue
         }
-      }
 
-      if (sizeOfDl > 0) {
-        downloadedSize += sizeOfDl
-      }
+        downloadCount++
 
-      log('suc', result[0])
-      log('verbose', `this turn has downloaded ${hs(sizeOfDl)}, total download size: ${hs(downloadedSize)}`)
+        let sizeOfDl = -1
+        let fileStoreName = ''
 
-      if (config.aria2 && config.aria2.address && fileStoreName) {
-        axios.post(config.aria2.address, {
-          jsonrpc: '2.0',
-          method: 'aria2.addUri',
-          id: strTools.randomStr(48),
-          params: [
-            'token:<token>',
-            [`${config.aria2.localPrefix}/${strTools.transferBadSymbolOnFileName(search)}/${fileStoreName}`],
-            {}
-          ]
-        }).then(({ data }) => {
-          log('suc', `remote aria2 server: ${data.id}-${data.jsonrpc}-${data.result}`)
-        }).catch(err => {
-          log('err', 'send command to remote aria2 server failed: ' + err.toString(), true)
-        })
+        try {
+          result = await scrapy.downloadVideo(info, search, downloadCount)
+          sizeOfDl = +result[1]
+          fileStoreName = result[2]
+        } catch (error) {
+          log('error', 'error occured in function [downloadVideo]:')
+          log('error', error, true)
+          if (error.toString().includes('disk')) {
+            process.exit(22)
+          } else {
+            continue
+          }
+        }
+
+        if (sizeOfDl > 0) {
+          downloadedSize += sizeOfDl
+        }
+
+        log('suc', result[0])
+        log('verbose', `this turn has downloaded ${hs(sizeOfDl)}, total download size: ${hs(downloadedSize)}`)
+
+        if (config.aria2 && config.aria2.address && fileStoreName) {
+          axios.post(config.aria2.address, {
+            jsonrpc: '2.0',
+            method: 'aria2.addUri',
+            id: strTools.randomStr(48),
+            params: [
+              'token:<token>',
+              [`${config.aria2.localPrefix}/${strTools.transferBadSymbolOnFileName(search)}/${fileStoreName}`],
+              {}
+            ]
+          }).then(({ data }) => {
+            log('suc', `remote aria2 server: ${data.id}-${data.jsonrpc}-${data.result}`)
+          }).catch(err => {
+            log('err', 'send command to remote aria2 server failed: ' + err.toString(), true)
+          })
+        }
       }
+      // --- endof one page loop ---
+
+      page += 1
     }
-    // --- endof one page loop ---
+    // --- endof download loop ---
 
-    page += 1
-  }
-  // --- endof download loop ---
-
-  log('suc', `one of the limitation satisfied, process will auto quit
+    log('suc', `one of the limitation satisfied, process will auto quit
 total time cost: ${prettyMilliseconds(performance.now(), { verbose: true })}
 total download content size: ${hs(downloadedSize)}`)
 
-  setTimeout(process.exit, 500, 0)
+    setTimeout(process.exit, 500, 0)
+  }
+
 }
 
 if (cli.flags.rebuildDlist) {

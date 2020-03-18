@@ -1,9 +1,12 @@
 const fs = require('fs')
 const fsp = fs.promises
 const path = require('path')
-// const os = require('os')
+const os = require('os')
 const vm = require('vm')
 const util = require('util')
+
+const tempDir = path.resolve(os.tmpdir(), 'ph-dler/')
+fs.existsSync(tempDir) || fs.mkdirSync(tempDir)
 
 /**
  * @type {{ proxyUrl: string, timeout: number, downloadDir: string, httpChunkSizeKB: number }}
@@ -12,8 +15,10 @@ const config = JSON.parse(fs.readFileSync('config.json').toString())
 
 
 const _ = require('lodash')
+const axios = require('axios').default
 const chalk = require('chalk').default
 const hs = require('human-size')
+const imgcat = require('imgcat')
 const disk = require('diskusage')
 const cheerio = require('cheerio')
 const request = require('request')
@@ -34,7 +39,7 @@ const oldFiles = fs.readFileSync('./dlist.txt', 'utf-8').toString().split('\n')
 // in windows, file name should not contain these symbols
 // * : " * ? < > |
 // here is the method to transfer these symbol to leagal ones
-const { transferBadSymbolOnFileName, transferBadSymbolOnPathName, fileNameToTitle } = require('./str')
+const { transferBadSymbolOnFileName, transferBadSymbolOnPathName, fileNameToTitle, randomStr } = require('./str')
 
 const vblog = require('./verbose')
 
@@ -92,7 +97,7 @@ async function findKeys(opts) {
 
     vblog(`[findKeys] requests with opt=${util.inspect(reqOpts, false, Infinity, true)}`)
 
-    request(reqOpts, (err, _res, body) => {
+    request(reqOpts, async (err, _res, body) => {
       if (err) {
         vblog(`[findKeys] request failed, err=${util.inspect(err, false, 3, true)}`)
 
@@ -100,10 +105,24 @@ async function findKeys(opts) {
       }
 
       const $ = cheerio.load(body)
+      /**
+       * @type {string[]}
+       */
       const allKeys = []
+      /**
+       * @type {Map<string, { name: string, img: string }>}
+       */
+      const previews = new Map()
 
       $('.videoblock.videoBox').each((_idx, element) => {
         const key = element.attribs['_vkey']
+        vblog(`[findKeys] working on .videoblock.videoBox Node, key=${chalk.greenBright(key)}`)
+        const $$ = cheerio.load(element)
+        const previewImg = $$('img')
+        const alt = previewImg.attr('alt')
+        const imgUrl = previewImg.attr('data-thumb_url')
+
+        previews.set(key, { name: alt, img: imgUrl })
         allKeys.push(key)
       })
 
@@ -123,7 +142,24 @@ async function findKeys(opts) {
       const tm = chalk.redBright(prettyMilliseconds(vblog.stopWatch('findKeys-requests', false), { verbose: true }))
       vblog(`[findKeys] exits with ret=${util.inspect(retKeys, false, Infinity, true)} inside Promise, time cost ${tm}`)
 
-      return resolve(retKeys)
+      if (global.cli.flags.verbose) {
+        for (const rk of retKeys) {
+          const { name, img } = previews.get(rk)
+          const imgBuf = (await axios.get(img, { responseType: 'arraybuffer' })).data
+          const imgTfName = `${randomStr(16)}.jpg`
+          const imgTfPath = path.resolve(tempDir, imgTfName)
+          await fsp.writeFile(imgTfPath, imgBuf)
+          // console.log(`key: ${rk} name: ${name} preview: ${imgTfPath}`)
+          /**
+           * @type {string}
+           */
+          const image = await imgcat(imgTfPath, { height: '40px', preserveAspectRatio: true })
+          vblog(`thumb of ${chalk.bgGreenBright(name)}, key=${chalk.greenBright(rk)}`)
+          console.log(image)
+        }
+      }
+
+      resolve(retKeys)
     })
   })
 
@@ -270,7 +306,7 @@ async function downloadVideo(ditem, folderName, downloadCount) {
   const transferedTitle = transferBadSymbolOnFileName(title)
   const filename = `${transferedTitle}_${ditem.quality}P_${ditem.key}.mp4`
   // const transferedFilename = transferBadSymbolOnFileName(filename)
-  const filenameWithRank = `${(downloadCount + '').padStart(4, '0')}_${filename}`
+  const filenameWithRank = downloadCount === undefined ? filename : `${(downloadCount + '').padStart(4, '0')}_${filename}`
   const transferedFilenameWithRank = transferBadSymbolOnFileName(filenameWithRank)
 
   const dir = config.downloadDir + transferBadSymbolOnFileName(folderName)
@@ -317,6 +353,9 @@ async function downloadVideo(ditem, folderName, downloadCount) {
 
     Object.assign(opts, baseReqOpts)
 
+    // because of videos are distributed by CDN, so there's no need for proxy
+    // delete opts.proxy
+
     log('notice', `ready to downloading > ${filename}`)
 
     vblog(`[downloadVideo] <in Promise> requests with opt=${util.inspect(opts, false, Infinity, true)}`)
@@ -324,6 +363,13 @@ async function downloadVideo(ditem, folderName, downloadCount) {
     return request.get(opts)
       .on('response', async resp => {
         const resHeaders = resp.headers
+        vblog(`[downloadVideo] <in Promise> getting Code=${chalk.redBright(resp.statusCode)}, Header ${util.inspect(resHeaders, false, Infinity, true)}`)
+        if (resp.statusCode > 400) {
+          const respRet = resp.read(+resHeaders['content-length'])
+          console.log(respRet)
+          reject('cannot access to video file, process auto quit')
+          return
+        }
         const contentTotalLength = +resHeaders['content-length']
 
         vblog(`[downloadVideo] <in Promise> getting Header.content-length=${contentTotalLength} (${hs(contentTotalLength, 3)})`)
