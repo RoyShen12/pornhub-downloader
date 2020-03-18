@@ -66,8 +66,5 @@ pack.sh
 dlist.txt
 search.log
 
-log*
-lagecy-log
-
 *.sh
 *.gz
