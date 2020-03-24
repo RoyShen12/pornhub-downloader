@@ -29,7 +29,7 @@ const cli = meow(`
 
     Options
       --search, -s         Searching key word
-      --key, -k            Sprightly download target video from given key
+      --key, -k            Sprightly download target video from given key (or keys sepreted by commas)
       --exclude, -e        Excluding key word
       --amount, -a         Only download specified amount of files, default is Infinity
       --limit, -l          Limitation of the downloading content (MB), default is Infinity
@@ -129,13 +129,17 @@ const run = async () => {
 
   // Key Mode
   if (key) {
-    try {
-      const info = await scrapy.findDownloadInfo(key)
-      const result = await scrapy.downloadVideo(info, '')
-      log('suc', result[0])
-    } catch (error) {
-      console.error(error)
+    const keyList = key.split(',')
+    for (const k of keyList) {
+      try {
+        const info = await scrapy.findDownloadInfo(k)
+        const result = await scrapy.downloadVideo(info, '')
+        log('suc', result[0])
+      } catch (error) {
+        console.error(error)
+      }
     }
+
     log('suc', 'task finished.')
     process.exit(0)
   }
