@@ -142,7 +142,7 @@ async function findKeys(opts) {
       const tm = chalk.redBright(prettyMilliseconds(vblog.stopWatch('findKeys-requests', false), { verbose: true }))
       vblog(`[findKeys] exits with ret=${util.inspect(retKeys, false, Infinity, true)} inside Promise, time cost ${tm}`)
 
-      if (global.cli.flags.verbose) {
+      if (global.cli.flags.verbose || global.cli.flags.listOnly) {
         for (const rk of retKeys) {
           const { name, img } = previews.get(rk)
           const imgBuf = (await axios.get(img, { responseType: 'arraybuffer' })).data
@@ -150,12 +150,16 @@ async function findKeys(opts) {
           const imgTfPath = path.resolve(tempDir, imgTfName)
           await fsp.writeFile(imgTfPath, imgBuf)
           // console.log(`key: ${rk} name: ${name} preview: ${imgTfPath}`)
-          /**
-           * @type {string}
-           */
-          const image = await imgcat(imgTfPath, { height: '40px', preserveAspectRatio: true })
-          vblog(`thumb of ${chalk.bgGreenBright(name)}, key=${chalk.greenBright(rk)}`)
-          console.log(image)
+          try {
+            /**
+             * @type {string}
+             */
+            const image = await imgcat(imgTfPath, { height: global.cli.flags.previewSize, preserveAspectRatio: true })
+            // console.log()
+            console.log(image + ` <- thumb of ${chalk.blue(name)}, key=${chalk.greenBright(rk)}`)
+          } catch (error) {
+            console.error(error)
+          }
         }
       }
 

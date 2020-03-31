@@ -36,7 +36,9 @@ const cli = meow(`
       --fakerun, -f        Fake running (Dry run), won't actually download anything
       --skipless           Skipping file smaller than the given size (MB)
       --skipmore           Skipping file larger than the given size (MB)
-      --rebuild_dlist      Rebuild the dlist.txt by searching the download path
+      --rebuild-dlist      Rebuild the dlist.txt by searching the download path
+      --list-only          Only list keys from searching key word
+      --preview-size       Preview image height for iTerm2 only (show while --list-only or --verbose flag is on), default is 40px
       --verbose            Make the process more talkative
 `, {
     flags: {
@@ -67,11 +69,17 @@ const cli = meow(`
       skipmore: {
         default: 'Infinity'
       },
-      rebuild_dlist: {
+      rebuildDlist: {
         type: 'boolean'
       },
       verbose: {
         type: 'boolean'
+      },
+      listOnly: {
+        type: 'boolean'
+      },
+      previewSize: {
+        default: '40px'
       }
     }
 })
@@ -184,6 +192,12 @@ const run = async () => {
 
       if (!Array.isArray(keys) || keys.length === 0) {
         throw new Error('scrapy.findKeys: find nothing!')
+      }
+
+      if (cli.flags.listOnly) {
+        vblog('[main download] skip key loop (listOnly)')
+        page += 1
+        continue
       }
 
       // --- one page loop ---
