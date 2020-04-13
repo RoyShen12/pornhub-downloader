@@ -202,7 +202,7 @@ function parseDownloadInfo(bodyStr) {
   vblog.stopWatch('parseDIF', true)
   vblog(`[parseDownloadInfo] entered, (bodyStr length=${bodyStr.length})`)
 
-  fs.writeFileSync('./debug/bodyStr.html', bodyStr)
+  // fs.writeFileSync('./debug/bodyStr.html', bodyStr)
 
   let info
   const idx = bodyStr.indexOf('mediaDefinitions')
