@@ -26,9 +26,10 @@ const prettyMilliseconds = require('pretty-ms')
 const ProgressBar = require('progress')
 const progressStream = require('progress-stream')
 
-const downloadText = process.env.LANG.includes('zh_CN') ? '下载' : 'downloading'
-const eatText = process.env.LANG.includes('zh_CN') ? '剩余' : 'EAT'
-const pieceText = process.env.LANG.includes('zh_CN') ? '块' : 'Piece'
+const usingCN = process.env.LANG && process.env.LANG.includes('zh_CN') || os.platform() === 'win32'
+const downloadText = usingCN ? '下载' : 'downloading'
+const eatText = usingCN ? '剩余' : 'EAT'
+const pieceText = usingCN ? '块' : 'Piece'
 
 const { performance } = require('perf_hooks')
 
