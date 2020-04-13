@@ -4,6 +4,7 @@ const path = require('path')
 const os = require('os')
 const vm = require('vm')
 const util = require('util')
+const sysUtil = util
 
 const tempDir = path.resolve(os.tmpdir(), 'ph-dler/')
 fs.existsSync(tempDir) || fs.mkdirSync(tempDir)
@@ -201,6 +202,8 @@ function parseDownloadInfo(bodyStr) {
   vblog.stopWatch('parseDIF', true)
   vblog(`[parseDownloadInfo] entered, (bodyStr length=${bodyStr.length})`)
 
+  fs.writeFileSync('./debug/bodyStr.html', bodyStr)
+
   let info
   const idx = bodyStr.indexOf('mediaDefinitions')
 
@@ -230,30 +233,30 @@ function parseDownloadInfo(bodyStr) {
 
   try {
     // eslint-disable-next-line
-    const c = vm.createContext({ loadScriptUniqueId:[], loadScriptVar: [], playerObjList: { playerDiv_243984141:{} } })
+    const c = vm.createContext({ playerObjList: { } })
     vm.runInContext(jsline, c)
-    // console.log(sysUtil.inspect(a.mediaDefinitions, false, 2, true))
+    // console.log(sysUtil.inspect(c, false, 4, true))
+    for (const k in c) {
+      if (/flashvars_\d+/.test(k) && c[k].mediaDefinitions) {
+        // console.log(sysUtil.inspect(c[k].mediaDefinitions, false, 3, true))
+        const arr = c[k].mediaDefinitions
+          .filter(s => s.videoUrl.length > 0)
+          .sort((a, b) => {
+            return a.quality !== b.quality ? (+b.quality) - (+a.quality) : b.format.localeCompare(a.format)
+          })
+        // console.log(arr)
+        // process.exit(0)
+        const ret = arr[0]
+        ret.title = findTitle(bodyStr)
 
-    if (c.loadScriptVar[0].mediaDefinitions) {
-      const arr = c.loadScriptVar[0].mediaDefinitions
-        .filter(s => s.videoUrl.length > 0)
-        .sort((a, b) => {
-          return a.quality !== b.quality ? (+b.quality) - (+a.quality) : b.format.localeCompare(a.format)
-        })
-      // console.log(arr)
-      // process.exit(0)
-      const ret = arr[0]
-      ret.title = findTitle(bodyStr)
+        const tm = chalk.redBright(prettyMilliseconds(vblog.stopWatch('parseDIF', false), { verbose: true }))
+        vblog(`[parseDownloadInfo] exits with ret=${util.inspect(ret, false, Infinity, true)}, time cost ${tm}`)
 
-      const tm = chalk.redBright(prettyMilliseconds(vblog.stopWatch('parseDIF', false), { verbose: true }))
-      vblog(`[parseDownloadInfo] exits with ret=${util.inspect(ret, false, Infinity, true)}, time cost ${tm}`)
-
-      return ret
+        return ret
+      }
     }
-    else {
-      vblog('[parseDownloadInfo] exits with empty c.loadScriptVar[0].mediaDefinitions !')
-      return ''
-    }
+    // console.log(sysUtil.inspect(c, false, 3, true))
+    // process.exit(0)
   } catch (error) {
     console.error(error)
     return ''
