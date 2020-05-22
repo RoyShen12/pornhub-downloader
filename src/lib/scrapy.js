@@ -522,11 +522,9 @@ Header=${util.inspect(resp.headers, false, 2, true)}`)
                   .on('close', () => {
                     vblog(`[downloadVideo] <in Promise> for...of request for file piece(${idx}/${ranges.length}) ended, Stream closed`)
                     resolve(`file${idx} has been downloaded!`)
+                    idx += 1
                   })
               }))
-
-              idx += 1
-
             } catch (error) {
               oneFile = null
               log('err', error, true)
