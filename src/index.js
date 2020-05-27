@@ -28,18 +28,19 @@ const cli = meow(`
       $ node src -k <> [options]
 
     Options
-      --search, -s         Searching key word
-      --key, -k            Sprightly download target video from given key (or keys sepreted by commas)
-      --exclude, -e        Excluding key word
-      --amount, -a         Only download specified amount of files, default is Infinity
-      --limit, -l          Limitation of the downloading content (MB), default is Infinity
-      --fakerun, -f        Fake running (Dry run), won't actually download anything
-      --skipless           Skipping file smaller than the given size (MB)
-      --skipmore           Skipping file larger than the given size (MB)
-      --rebuild-dlist      Rebuild the dlist.txt by searching the download path
-      --list-only          Only list keys from searching key word
-      --preview-size       Preview image height for iTerm2 only (show while --list-only or --verbose flag is on), default is 40px
-      --verbose            Make the process more talkative
+      -s, --search <str>        Searching key word
+      -k, --key <str>           Sprightly download target video from given key (or muitl keys sepreted by commas)
+      -e, --exclude <str>       Excluding key word (or muitl words sepreted by commas) using for title filter
+      -a, --amount <num>        Only download specified amount of files, default is Infinity
+      -l, --limit <num>         Limitation of the downloading content (MB), default is Infinity
+      -f, --fakerun             Fake running (Dry run), won't actually download anything
+      --skip <num>              Skip the first few videos
+      --skipless <num>          Skipping file smaller than the given size (MB)
+      --skipmore <num>          Skipping file larger than the given size (MB)
+      --rebuild-dlist           Rebuild the dlist.txt by searching the download path
+      --list-only               Only list keys from searching key word
+      --preview-size <num>      Preview image height for iTerm2 only (show while --list-only or --verbose flag is on), default is 40px
+      --verbose                 Make the process more talkative
 `, {
     flags: {
       search: {
@@ -62,6 +63,9 @@ const cli = meow(`
       fakerun: {
         type: 'boolean',
         alias: 'f'
+      },
+      skip: {
+        default: '0'
       },
       skipless: {
         default: '0'
@@ -126,7 +130,14 @@ const run = async () => {
   fs.existsSync(config.downloadDir) || fs.mkdirSync(config.downloadDir)
   fs.existsSync('./dlist.txt') || fs.writeFileSync('./dlist.txt', '')
 
+  /**
+   * start from 1
+   */
   let page = 1
+
+  /**
+   * @type {{ search: string, key: string }}
+   */
   const { search, key } = cli.flags
 
 
@@ -156,6 +167,8 @@ const run = async () => {
     const limit = +cli.flags.limit
     const amountLimit = +cli.flags.amount
 
+    const skip = +cli.flags.skip
+
     if (isNaN(limit)) {
       console.log('bad arg --limit (-l), should be a number')
       process.exit(0)
@@ -163,6 +176,11 @@ const run = async () => {
 
     if (isNaN(amountLimit)) {
       console.log('bad arg --amount (-a), should be a number')
+      process.exit(0)
+    }
+
+    if (isNaN(skip)) {
+      console.log('bad arg --skip, should be a number')
       process.exit(0)
     }
 
@@ -198,6 +216,13 @@ const run = async () => {
         vblog('[main download] skip key loop (listOnly)')
         page += 1
         continue
+      }
+
+      if (page === 1 && skip > 0) {
+        log('notice', `[main download] will skip first ${skip} results`)
+        // console.log(keys)
+        new Array(skip).fill(1).forEach(() => keys.shift())
+        // console.log(keys)
       }
 
       // --- one page loop ---

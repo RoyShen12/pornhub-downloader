@@ -334,8 +334,16 @@ async function downloadVideo(ditem, folderName, downloadCount) {
   const pm = new Promise((resolve, reject) => {
     const thisFolderFiles = global.cli.flags.fakerun ? [] : fs.readdirSync(dir).filter(f => f[0] !== '.')
 
-    if (global.cli.flags.exclude && title.includes(global.cli.flags.exclude)) {
-      return resolve([`title ${title} excluded by user flag ${global.cli.flags.exclude}`, 0])
+    // console.log(title, global.cli.flags.exclude, title.includes(global.cli.flags.exclude))
+    if (global.cli.flags.exclude) {
+      /**
+       * @type {string[]}
+       */
+      const excludes = global.cli.flags.exclude.split(',')
+      if (excludes.some(ex => title.includes(ex))) {
+        resWords = global.cli.flags.verbose ? `title ${title} excluded by user flag ${global.cli.flags.exclude}` : 'skip a video by title filter'
+        return resolve([resWords, 0])
+      }
     }
     // check old file
     if (fs.existsSync(transferedDst)) {
