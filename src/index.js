@@ -1,4 +1,5 @@
 process.env.TZ = 'Asia/Shanghai'
+// process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'
 
 // const childProcess = require('child_process')
 const fs = require('fs')
@@ -12,8 +13,7 @@ const os = require('os')
 // const util = require('util')
 const path = require('path')
 const { performance } = require('perf_hooks')
-
-const axios = require('axios').default
+const fetch = require('make-fetch-happen').defaults()
 const logger = require('./lib/logger')
 const hs = require('human-size')
 const prettyMilliseconds = require('pretty-ms')
@@ -30,6 +30,7 @@ const cli = meow(`
     Options
       -s, --search <str>        Searching key word
       -k, --key <str>           Sprightly download target video from given key (or muitl keys sepreted by commas)
+      -p, --parallel <num>  (ex)Enable parallel downloading to accelerate download speed
       -e, --exclude <str>       Excluding key word (or muitl words sepreted by commas) using for title filter
       -a, --amount <num>        Only download specified amount of files, default is Infinity
       -l, --limit <num>         Limitation of the downloading content (MB), default is Infinity
@@ -39,6 +40,7 @@ const cli = meow(`
       --skipmore <num>          Skipping file larger than the given size (MB)
       --rebuild-dlist           Rebuild the dlist.txt by searching the download path
       --list-only               Only list keys from searching key word
+      --preview                 Show preview image of each video before downloading
       --preview-size <num>      Preview image height for iTerm2 only (show while --list-only or --verbose flag is on), default is 40px
       --verbose                 Make the process more talkative
 `, {
@@ -48,6 +50,9 @@ const cli = meow(`
       },
       key: {
         alias: 'k'
+      },
+      parallel: {
+        alias: 'p'
       },
       exclude: {
         alias: 'e'
@@ -82,6 +87,9 @@ const cli = meow(`
       listOnly: {
         type: 'boolean'
       },
+      preview: {
+        type: 'boolean'
+      },
       previewSize: {
         default: '40px'
       }
@@ -98,7 +106,14 @@ if (cli.flags.skipmore && isNaN(+cli.flags.skipmore)) {
   process.exit(0)
 }
 
+if (cli.flags.parallel && isNaN(+cli.flags.parallel)) {
+  console.log('bad arg -p(--parallel), should be a number')
+  process.exit(0)
+}
+
 global.cli = cli
+
+fs.existsSync('./dlist.txt') || fs.writeFileSync('./dlist.txt', '')
 
 const tmpp = path.resolve(os.tmpdir(), strTools.randomStr(16))
 fs.existsSync(tmpp) || fs.mkdirSync(tmpp)
@@ -152,7 +167,7 @@ const run = async () => {
     for (const k of keyList) {
       try {
         const info = await scrapy.findDownloadInfo(k)
-        const result = await scrapy.downloadVideo(info, '')
+        const result = await scrapy.downloadVideo(info, '', undefined, cli.flags.parallel)
         log('suc', result[0])
       } catch (error) {
         console.error(error)
@@ -258,7 +273,7 @@ const run = async () => {
         let fileStoreName = ''
 
         try {
-          result = await scrapy.downloadVideo(info, search, downloadCount)
+          result = await scrapy.downloadVideo(info, search, downloadCount, cli.flags.parallel)
           sizeOfDl = +result[1]
           fileStoreName = result[2]
         } catch (error) {
@@ -279,16 +294,24 @@ const run = async () => {
         log('verbose', `this turn has downloaded ${hs(sizeOfDl)}, total download size: ${hs(downloadedSize)}`)
 
         if (config.aria2 && config.aria2.address && fileStoreName) {
-          axios.post(config.aria2.address, {
-            jsonrpc: '2.0',
-            method: 'aria2.addUri',
-            id: strTools.randomStr(48),
-            params: [
-              'token:<token>',
-              [`${config.aria2.localPrefix}/${strTools.transferBadSymbolOnFileName(search)}/${fileStoreName}`],
-              {}
-            ]
-          }).then(({ data }) => {
+          fetch(config.aria2.address, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              jsonrpc: '2.0',
+              method: 'aria2.addUri',
+              id: strTools.randomStr(48),
+              params: [
+                'token:<token>',
+                [`${config.aria2.localPrefix}/${strTools.transferBadSymbolOnFileName(search)}/${fileStoreName}`],
+                {}
+              ]
+            })
+          }).then(res => {
+            return res.json()
+          }).then(data => {
             log('suc', `remote aria2 server: ${data.id}-${data.jsonrpc}-${data.result}`)
           }).catch(err => {
             log('err', 'send command to remote aria2 server failed: ' + err.toString(), true)
@@ -332,3 +355,7 @@ if (cli.flags.rebuildDlist) {
 else {
   run()
 }
+
+process.on('unhandledRejection', (reason, p) => {
+  console.log('unhandled promise rejection:', reason, p)
+})

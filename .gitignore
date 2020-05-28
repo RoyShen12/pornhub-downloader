@@ -60,6 +60,8 @@ typings/
 # by blackmatch
 downloads
 debug
+.cache
+
 .DS_Store
 
 pack.sh

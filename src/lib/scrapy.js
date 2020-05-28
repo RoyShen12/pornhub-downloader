@@ -4,6 +4,7 @@ const path = require('path')
 const os = require('os')
 const vm = require('vm')
 const util = require('util')
+// eslint-disable-next-line no-unused-vars
 const sysUtil = util
 
 const tempDir = path.resolve(os.tmpdir(), 'ph-dler/')
@@ -16,27 +17,35 @@ const config = JSON.parse(fs.readFileSync('config.json').toString())
 
 
 const _ = require('lodash')
-const axios = require('axios').default
+
+// const axios = require('axios')
 const chalk = require('chalk').default
-const hs = require('human-size')
+
 const imgcat = require('imgcat')
+
 const disk = require('diskusage')
+
 const cheerio = require('cheerio')
-const request = require('request')
+
+// const request = require('request')
+const makeFetchHappen = require('make-fetch-happen')
+
+const hs = require('human-size')
 const prettyMilliseconds = require('pretty-ms')
 const ProgressBar = require('progress')
 const progressStream = require('progress-stream')
 
-const usingCN = process.env.LANG && process.env.LANG.includes('zh_CN') || os.platform() === 'win32'
+const usingCN = process.env.LANG && process.env.LANG.includes('zh_CN')/* || os.platform() === 'win32'*/
 const downloadText = usingCN ? '下载' : 'downloading'
 const eatText = usingCN ? '剩余' : 'EAT'
 const pieceText = usingCN ? '块' : 'Piece'
 
 const { performance } = require('perf_hooks')
+const perf = performance
 
 const log = require('./logger').getLogger('main')
 
-const oldFiles = fs.readFileSync('./dlist.txt', 'utf-8').toString().split('\n')
+const LimitedQueue = require('../lib/limited-queue')
 
 // in windows, file name should not contain these symbols
 // * : " * ? < > |
@@ -45,7 +54,7 @@ const { transferBadSymbolOnFileName, transferBadSymbolOnPathName, fileNameToTitl
 
 const vblog = require('./verbose')
 
-const domain = 'www.pornhub.com'
+const domain = 'cn.pornhub.com'
 const baseUrl = `https://${domain}`
 
 const customHeaders = {
@@ -61,20 +70,28 @@ const customHeaders = {
   // 'Upgrade-Insecure-Requests': '1',
   'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_14) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/12.0 Safari/605.1.15'
 }
-const baseReqOpts = {
+
+const baseFetchOptions = {
+  // cacheManager: './.cache',
   headers: customHeaders,
-  gzip: true
+  retry: 5,
+  onRetry() {
+    log('warn', '[Fetch] retrying...')
+  }
 }
 
 // proxy
 if (config.proxyUrl.trim().length > 0) {
-  baseReqOpts.proxy = config.proxyUrl.trim()
+  log('notice', `Using Proxy: ${chalk.yellowBright(config.proxyUrl.trim())}`)
+  baseFetchOptions.proxy = config.proxyUrl.trim()
 }
 
 // timeout
 if (config.timeout > 0) {
-  baseReqOpts.timeout = config.timeout
+  baseFetchOptions.timeout = config.timeout * 1000
 }
+
+const fetch = makeFetchHappen.defaults(baseFetchOptions)
 
 const httpChunkBytes = (config.httpChunkSizeKB || 2048) * 1024
 
@@ -82,94 +99,80 @@ async function findKeys(opts) {
   vblog.stopWatch('findKeys-requests', true)
   vblog(`[findKeys] entered, opt=${util.inspect(opts, false, Infinity, true)}`)
 
-  const pm = new Promise((resolve, reject) => {
+  const url = `${baseUrl}/video/search?search=${encodeURIComponent(opts.search.trim())}&page=${opts.page}`
+  vblog(`[findKeys] requests to ${chalk.greenBright(url)}`)
+  const res = await fetch(url)
+  // console.log(res)
+  /**
+   * @type {string}
+   */
+  const text = await res.text()
+  // console.log(text)
+  const $ = cheerio.load(text)
+  /**
+   * @type {string[]}
+   */
+  const allKeys = []
+  /**
+   * @type {Map<string, { name: string, img: string }>}
+   */
+  const previews = new Map()
 
-    const queryObj = {
-      search: opts.search.trim(),
-      page: opts.page
-    }
-    const reqOpts = {
-      baseUrl,
-      qs: queryObj,
-      uri: '/video/search',
-      url: `${baseUrl}/video/search`
-    }
+  $('.videoblock.videoBox').each((_idx, element) => {
+    const key = element.attribs['_vkey']
+    vblog(`[findKeys] working on .videoblock.videoBox Node, key=${chalk.greenBright(key)}`)
+    const $$ = cheerio.load(element)
+    const previewImg = $$('img')
+    const alt = previewImg.attr('alt')
+    const imgUrl = previewImg.attr('data-thumb_url')
 
-    Object.assign(reqOpts, baseReqOpts)
-
-    vblog(`[findKeys] requests with opt=${util.inspect(reqOpts, false, Infinity, true)}`)
-
-    request(reqOpts, async (err, _res, body) => {
-      if (err) {
-        vblog(`[findKeys] request failed, err=${util.inspect(err, false, 3, true)}`)
-
-        return reject(err)
-      }
-
-      const $ = cheerio.load(body)
-      /**
-       * @type {string[]}
-       */
-      const allKeys = []
-      /**
-       * @type {Map<string, { name: string, img: string }>}
-       */
-      const previews = new Map()
-
-      $('.videoblock.videoBox').each((_idx, element) => {
-        const key = element.attribs['_vkey']
-        vblog(`[findKeys] working on .videoblock.videoBox Node, key=${chalk.greenBright(key)}`)
-        const $$ = cheerio.load(element)
-        const previewImg = $$('img')
-        const alt = previewImg.attr('alt')
-        const imgUrl = previewImg.attr('data-thumb_url')
-
-        previews.set(key, { name: alt, img: imgUrl })
-        allKeys.push(key)
-      })
-
-      const skipKeys = []
-      $('.dropdownHottestVideos .videoblock.videoBox').each((idx, element) => {
-        const key = element.attribs['_vkey']
-        skipKeys.push(key)
-      })
-
-      $('.dropdownReccomendedVideos .videoblock.videoBox').each((idx, element) => {
-        const key = element.attribs['_vkey']
-        skipKeys.push(key)
-      })
-
-      const retKeys = allKeys.filter(k => !skipKeys.includes(k))
-
-      const tm = chalk.redBright(prettyMilliseconds(vblog.stopWatch('findKeys-requests', false), { verbose: true }))
-      vblog(`[findKeys] exits with ret=${util.inspect(retKeys, false, Infinity, true)} inside Promise, time cost ${tm}`)
-
-      if (global.cli.flags.verbose || global.cli.flags.listOnly) {
-        for (const rk of retKeys) {
-          const { name, img } = previews.get(rk)
-          const imgBuf = (await axios.get(img, { responseType: 'arraybuffer' })).data
-          const imgTfName = `${randomStr(16)}.jpg`
-          const imgTfPath = path.resolve(tempDir, imgTfName)
-          await fsp.writeFile(imgTfPath, imgBuf)
-          // console.log(`key: ${rk} name: ${name} preview: ${imgTfPath}`)
-          try {
-            /**
-             * @type {string}
-             */
-            const image = await imgcat(imgTfPath, { height: global.cli.flags.previewSize, preserveAspectRatio: true })
-            // console.log()
-            console.log(image + ` <- thumb of ${chalk.blue(name)}, key=${chalk.greenBright(rk)}`)
-          } catch (error) {
-            console.error(error)
-          }
-        }
-      }
-
-      resolve(retKeys)
-    })
+    previews.set(key, { name: alt, img: imgUrl })
+    allKeys.push(key)
   })
 
-  return pm
+  const skipKeys = []
+  $('.dropdownHottestVideos .videoblock.videoBox').each((idx, element) => {
+    const key = element.attribs['_vkey']
+    skipKeys.push(key)
+  })
+
+  $('.dropdownReccomendedVideos .videoblock.videoBox').each((idx, element) => {
+    const key = element.attribs['_vkey']
+    skipKeys.push(key)
+  })
+
+  const retKeys = allKeys.filter(k => !skipKeys.includes(k))
+
+  const tm = chalk.redBright(prettyMilliseconds(vblog.stopWatch('findKeys-requests', false), { verbose: true }))
+  vblog(`[findKeys] exits with ret=${util.inspect(retKeys, false, Infinity, true)}, time cost ${tm}`)
+
+  if (global.cli.flags.preview) {
+    for (const rk of retKeys) {
+      try {
+        const { name, img } = previews.get(rk)
+        console.log('downloading image', img)
+        let imgBuf = await (await fetch(img)).buffer()
+        console.log('download ok.')
+        const imgTfName = `${randomStr(16)}.jpg`
+        const imgTfPath = path.resolve(tempDir, imgTfName)
+        await fsp.writeFile(imgTfPath, imgBuf)
+        console.log(`key: ${rk} name: ${name} preview: ${imgTfPath}`)
+        /**
+         * @type {string}
+         */
+        const image = await imgcat(imgTfPath, { height: global.cli.flags.previewSize, preserveAspectRatio: true })
+        console.log(image + ` <- thumb of ${chalk.blue(name)}, key=${chalk.greenBright(rk)}`)
+      } catch (error) {
+        console.error(error)
+      }
+    }
+  }
+
+  if (global.cli.flags.listOnly) {
+    console.log(retKeys)
+  }
+
+  return retKeys
 }
 
 /**
@@ -250,7 +253,8 @@ function parseDownloadInfo(bodyStr) {
         ret.title = findTitle(bodyStr)
 
         const tm = chalk.redBright(prettyMilliseconds(vblog.stopWatch('parseDIF', false), { verbose: true }))
-        vblog(`[parseDownloadInfo] exits with ret=${util.inspect(ret, false, Infinity, true)}, time cost ${tm}`)
+        // vblog(`[parseDownloadInfo] exits with ret=${util.inspect(ret, false, Infinity, true)}, time cost ${tm}`)
+        vblog(`[parseDownloadInfo] exits, time cost ${tm}`)
 
         return ret
       }
@@ -267,46 +271,36 @@ async function findDownloadInfo(key) {
   vblog.stopWatch('findDF', true)
   vblog(`[findDownloadInfo] entered with key=${key}`)
 
-  let finalKey = key
+  // let finalKey = key
+  const url = `https://www.pornhub.com/view_video.php?viewkey=${key}`
+  vblog(`[findDownloadInfo] requests to ${chalk.greenBright(url)}`)
+  const res = await fetch(url)
+  /**
+   * @type {string}
+   */
+  const text = await res.text()
 
-  return new Promise((resolve, reject) => {
+  const ditem = parseDownloadInfo(text)
+  if (ditem) {
+    ditem.key = key
+  }
 
-    let pageUrl = `https://www.pornhub.com/view_video.php?viewkey=${key}`
-    if (key.startsWith('http')) {
-      pageUrl = key
-      finalKey = key.split('=').pop()
-    }
-    let opts = {
-      url: pageUrl
-    }
+  const tm = chalk.redBright(prettyMilliseconds(vblog.stopWatch('findDF', false), { verbose: true }))
+  vblog(`[findDownloadInfo] exits with ret=${util.inspect(ditem, false, Infinity, true)}, time cost ${tm}`)
 
-    Object.assign(opts, baseReqOpts)
-
-    vblog(`[findDownloadInfo] requests with opt=${util.inspect(opts, false, Infinity, true)}`)
-
-    request(opts, (err, res, body) => {
-      if (err) {
-        vblog(`[findDownloadInfo] request failed, err=${util.inspect(err, false, 3, true)}`)
-        return reject(err)
-      }
-      const ditem = parseDownloadInfo(body)
-      if (ditem) {
-        ditem.key = finalKey
-      }
-
-      const tm = chalk.redBright(prettyMilliseconds(vblog.stopWatch('findDF', false), { verbose: true }))
-      vblog(`[findDownloadInfo] exits with ret=${util.inspect(ditem, false, Infinity, true)} inside Promise, time cost ${tm}`)
-
-      return resolve(ditem)
-    })
-  })
+  return ditem
 }
 
-async function downloadVideo(ditem, folderName, downloadCount) {
+/**
+ * @param {{ title: string, quality: string, key: string, videoUrl: string }} ditem
+ * @param {string} folderName
+ * @param {number} downloadCount
+ * @param {number} parallel
+ */
+async function downloadVideo(ditem, folderName, downloadCount, parallel) {
   vblog.stopWatch('scrapy.js-downloadVideo', true)
-  vblog(`[downloadVideo] entered with ditem=${util.inspect(ditem, false, Infinity, true)}, folderName=${folderName}, downloadCount=${downloadCount}`)
+  vblog(`[downloadVideo] entered, folderName=${chalk.yellowBright(folderName)}, downloadCount=${chalk.greenBright(downloadCount)}`)
 
-  /** @type {string} */
   const title = ditem.title.trim()
 
   const shortTitle = title.length <= 20 ? title : (title.substr(0, 17) + '...')
@@ -319,7 +313,7 @@ async function downloadVideo(ditem, folderName, downloadCount) {
 
   const dir = config.downloadDir + transferBadSymbolOnFileName(folderName)
 
-  if (!cli.flags.fakerun) {
+  if (!global.cli.flags.fakerun) {
     fs.existsSync(dir) || fs.mkdirSync(dir)
   }
 
@@ -329,272 +323,286 @@ async function downloadVideo(ditem, folderName, downloadCount) {
   const transferedDst = transferBadSymbolOnPathName(dst)
   const transferedDstWithRank = transferBadSymbolOnPathName(dstWithRank)
 
-  vblog(`[downloadVideo] generated safe title: ${transferedTitle}, safe path: ${transferedDst}`)
+  vblog(`[downloadVideo] generated safe title: ${chalk.cyan(transferedTitle)} in safe path: ${chalk.cyanBright(transferedDst)}`)
 
-  const pm = new Promise((resolve, reject) => {
-    const thisFolderFiles = global.cli.flags.fakerun ? [] : fs.readdirSync(dir).filter(f => f[0] !== '.')
-
-    // console.log(title, global.cli.flags.exclude, title.includes(global.cli.flags.exclude))
-    if (global.cli.flags.exclude) {
-      /**
-       * @type {string[]}
-       */
-      const excludes = global.cli.flags.exclude.split(',')
-      if (excludes.some(ex => title.includes(ex))) {
-        resWords = global.cli.flags.verbose ? `title ${title} excluded by user flag ${global.cli.flags.exclude}` : 'skip a video by title filter'
-        return resolve([resWords, 0])
-      }
+  if (global.cli.flags.exclude) {
+    /**
+     * @type {string[]}
+     */
+    const excludes = global.cli.flags.exclude.split(',')
+    if (excludes.some(ex => title.includes(ex))) {
+      const resWords = global.cli.flags.verbose ? `title ${title} excluded by user flag ${global.cli.flags.exclude}` : 'skip a video by title filter'
+      return [resWords, 0]
     }
-    // check old file
-    if (fs.existsSync(transferedDst)) {
-      // debug scan
-      log('warn', `rename to -> ${filenameWithRank}`)
-      fs.renameSync(transferedDst, transferedDstWithRank)
-      return resolve([`${title} already exists in dl path and has been renamed into new style!`, 0])
-    }
-    // check new file
-    if (thisFolderFiles.some(oldf => fileNameToTitle(oldf) === transferedTitle)) {
-      return resolve([`${title} already exists in dl path!`, 0])
-    }
-    // check dl list
-    if (oldFiles.includes(transferedTitle)) {
-      return resolve([`${title} already exists in dlist.txt!`, 0])
-    }
+  }
 
-    let opts = {
-      url: ditem.videoUrl,
-      headers: customHeaders,
-      gzip: true
-    }
+  if (fs.existsSync(transferedDst) && downloadCount === undefined) {
+    log('warn', `rename to -> ${filenameWithRank}`)
+    fs.renameSync(transferedDst, transferedDstWithRank)
+    return [`${title} already exists in dl path and has been renamed into new style!`, 0]
+  }
 
-    Object.assign(opts, baseReqOpts)
+  // check new file
+  const thisFolderFiles = global.cli.flags.fakerun ? [] : fs.readdirSync(dir).filter(f => f[0] !== '.')
+  if (thisFolderFiles.some(oldf => fileNameToTitle(oldf) === transferedTitle)) {
+    return [`${title} already exists in dl path!`, 0]
+  }
 
-    // because of videos are distributed by CDN, so there's no need for proxy
-    // delete opts.proxy
+  // check dl list
+  const oldFiles = fs.readFileSync('./dlist.txt', 'utf-8').toString().split('\n')
+  if (oldFiles.includes(transferedTitle)) {
+    return [`${title} already exists in dlist.txt!`, 0]
+  }
 
-    log('notice', `ready to downloading > ${filename}`)
+  log('notice', `ready to downloading > ${filename}`)
+  vblog(`[downloadVideo] requests to ${chalk.greenBright(ditem.videoUrl)}`)
 
-    vblog(`[downloadVideo] <in Promise> requests with opt=${util.inspect(opts, false, Infinity, true)}`)
+  const res = await fetch(ditem.videoUrl)
 
-    return request.get(opts)
-      .on('response', async resp => {
-        const resHeaders = resp.headers
-        vblog(`[downloadVideo] <in Promise> getting Code=${chalk.redBright(resp.statusCode)}, Header ${util.inspect(resHeaders, false, Infinity, true)}`)
-        if (resp.statusCode > 400) {
-          const respRet = resp.read(+resHeaders['content-length'])
-          console.log(respRet)
-          reject('cannot access to video file, process auto quit')
-          return
-        }
-        const contentTotalLength = +resHeaders['content-length']
+  if (res.status !== 200) {
+    throw new Error('cannot access to video file, response status ' + chalk.redBright(res.status))
+  }
+  vblog(`[downloadVideo] getting Code=${chalk.redBright(res.status)}, Header ${util.inspect(res.headers, false, Infinity, true)}`)
 
-        vblog(`[downloadVideo] <in Promise> getting Header.content-length=${contentTotalLength} (${hs(contentTotalLength, 3)})`)
+  const contentTotalLength = +res.headers.get('content-length')
+  vblog(`[downloadVideo] getting content-length: ${chalk.bold(contentTotalLength)} (${chalk.bold(chalk.greenBright(hs(contentTotalLength, 3)))})`)
 
-        if (global.cli.flags.fakerun) return resolve(['fake downloaded!', contentTotalLength])
-        if (global.cli.flags.skipsize && global.cli.flags.skipsize * 1024 * 1024 > contentTotalLength) {
-          return resolve(['detect file of too small size, skip it', 0])
-        }
+  if (global.cli.flags.fakerun) return ['fake downloaded!', contentTotalLength]
 
-        // disk is full, stop tasks
-        const diskusage = await disk.check(/*os.platform() === 'win32' ? 'c:' : '/'*/config.downloadDir)
+  if (global.cli.flags.skipless && contentTotalLength < global.cli.flags.skipless * 1024 * 1024) {
+    return ['skip this video (size too small for --skipless)', 0]
+  }
 
-        if (diskusage.free < contentTotalLength * 2.1) {
-          reject(`incomming video size: ${hs(contentTotalLength, 1)}, which is larger than disk free space: ${hs(diskusage.free, 1)}, process auto quit`)
-          return
-        }
-        else {
-          log('verbose', `disk free space: ${hs(diskusage.free, 1)}.\n`)
-        }
+  if (global.cli.flags.skipmore && contentTotalLength > global.cli.flags.skipmore * 1024 * 1024) {
+    return ['skip this video (size too large for --skipmore)', 0]
+  }
 
-        //if (contentTotalLength > httpChunkBytes) {
+  // stop tasks while disk is full
+  const diskusage = await disk.check(/*os.platform() === 'win32' ? 'c:' : '/'*/config.downloadDir)
+  if (diskusage.free < contentTotalLength * 2.5) {
+    throw new Error('skip this video (no free disk space remains)')
+  }
+  else {
+    log('verbose', `disk free space: ${hs(diskusage.free, 1)}\n`)
+  }
 
-        /**
-         * @type { { start: number, end: number }[] }
-         */
-        const ranges = []
+  /**
+   * @type { { start: number, end: number }[] }
+   */
+  const ranges = []
 
-        const _chunkCount = Math.floor(contentTotalLength / httpChunkBytes)
-        const _mod = contentTotalLength % httpChunkBytes
+  const _chunkCount = Math.floor(contentTotalLength / httpChunkBytes)
+  const _mod = contentTotalLength % httpChunkBytes
 
-        for (let i = 0; i < _chunkCount; i++) {
-          ranges.push({
-            start: i * httpChunkBytes,
-            end: (i + 1) * httpChunkBytes - 1
-          })
-        }
+  for (let i = 0; i < _chunkCount; i++) {
+    ranges.push({
+      start: i * httpChunkBytes,
+      end: (i + 1) * httpChunkBytes - 1
+    })
+  }
 
-        if (_mod > 0) {
-          ranges.push({
-            start: _chunkCount * httpChunkBytes,
-            end: contentTotalLength - 1
-          })
-        }
+  if (_mod > 0) {
+    ranges.push({
+      start: _chunkCount * httpChunkBytes,
+      end: contentTotalLength - 1
+    })
+  }
 
-        const rl = ranges.length
-        const rll = (rl + '').length
-        const vblogRanges = ranges.map((r, i) => `  piece: ${((i + 1) + '').padStart(rll)}/${rl}, range: ${chalk.yellowBright(r.start)} - ${chalk.yellowBright(r.end)}${i !== rl - 1 ? ',' : ''}`).join('\n')
+  if (global.cli.flags.verbose) {
+    const rl = ranges.length
+    const rll = (rl + '').length
+    const vblogRanges = ranges.map((r, i) => `  piece: ${((i + 1) + '').padStart(rll)}/${rl}, range: ${chalk.yellowBright(r.start)} - ${chalk.yellowBright(r.end)}${i !== rl - 1 ? ',' : ''}`).join('\n')
 
-        vblog(`[downloadVideo] <in Promise> generated ranges=\n${vblogRanges}`)
+    vblog(`[downloadVideo] <in Promise> generated ranges=\n${vblogRanges}`)
+  }
 
-        /**
-         * Start time
-         */
-        const times = performance.now()
+  /**
+   * Download Start time
+   */
+  const timeStart = perf.now()
 
-        /**
-         * Total downloaded size
-         */
-        let downloadedBytes = 0
+  /**
+   * Total downloaded size
+   */
+  let downloadedBytes = 0
 
-        const progressBar = new ProgressBar(`${downloadText} ${shortTitle} [:bar] :spd/s ${pieceText}::piece :percent ${eatText}::etas`, {
-          incomplete: '-',
-          complete: 'x',
-          width: process.stdout.columns - 90,
-          total: contentTotalLength
-        })
-
-        const files = []
-        let idx = 0
-
-        // const maxPiecesL = (ranges.length + '').length
-        // const maxBytesL = (contentTotalLength + '').length
-
-        for (const item of ranges) {
-          vblog.stopWatch('scrapy.js-downloadVideo-piece', true)
-          vblog(`[downloadVideo] <in Promise> for...of at range=(${item.start}, ${item.end}) entered`)
-
-          const copyOpts = _.cloneDeep(opts)
-          copyOpts.headers['Range'] = `bytes=${item.start}-${item.end}`
-          copyOpts.headers['Connection'] = 'keep-alive'
-
-          delete copyOpts.gzip
-
-          const file = path.join(dir, `${ditem.key}${idx}`)
-
-          files.push(file)
-
-          // log('info', `downloading the ${(idx + 1 + '').padEnd(maxPiecesL)} / ${ranges.length} piece from ${(item.start + '').padEnd(maxBytesL)} to ${(item.end + '').padEnd(maxBytesL)} ...`)
-
-          if (fs.existsSync(transferBadSymbolOnPathName(file))) {
-            const tmpStat = fs.statSync(transferBadSymbolOnPathName(file))
-            vblog(`[downloadVideo] <in Promise> for...of check file piece(${idx}/${ranges.length}) ${chalk.greenBright('(Exists)')} (Size: ${chalk.blueBright(tmpStat.size)})`)
-            if (tmpStat.size === httpChunkBytes) {
-              log('warn', `detect file ${file} (piece ${idx}/${ranges.length}) already downloaded, skip it`)
-              idx += 1
-              progressBar.tick(httpChunkBytes)
-              continue
-            }
-            else {
-              vblog(`file ${file} (piece ${idx}/${ranges.length}) exists but ${chalk.yellowBright('Incomplete')}, redownload it`)
-            }
-          }
-
-          // ----- request for file frag -----
-          let oneFile = null
-
-          while (!oneFile) {
-            vblog(`[downloadVideo] <in Promise> for...of while loop for file piece(${idx}/${ranges.length}) entered`)
-            try {
-              oneFile = await (new Promise((resolve, reject) => {
-
-                vblog(`[downloadVideo] <in Promise> for...of requests for file piece(${idx}/${ranges.length}) with opt=${util.inspect(copyOpts, false, Infinity, true)}, pipe to ${transferBadSymbolOnPathName(file)}`)
-
-                request.get(copyOpts)
-                  .on('error', err => {
-                    vblog(`[downloadVideo] <in Promise> for...of requests for file piece(${idx}/${ranges.length}) failed because of ${util.inspect(err, false, 3, true)}`)
-                    reject(err)
-                  })
-                  .on('response', resp => {
-                    vblog(`[downloadVideo] <in Promise> for...of request for file piece(${idx}/${ranges.length}) responed with
-Code=${resp.statusCode}
-Header=${util.inspect(resp.headers, false, 2, true)}`)
-                  })
-                  .pipe(progressStream({ time: 16 }))
-                  .on('error', err => {
-                    reject(err)
-                  })
-                  .on('progress', innerProgress => {
-                    downloadedBytes += innerProgress.delta
-                    const avgSpeed = hs(downloadedBytes / (performance.now() - times) * 1000, 1)
-                    progressBar.tick(innerProgress.delta, {
-                      spd: avgSpeed,
-                      piece: `${idx}/${ranges.length}`
-                    })
-                  })
-                  .pipe(
-                    fs.createWriteStream(transferBadSymbolOnPathName(file), { encoding: 'binary' })
-                  )
-                  .on('error', err => {
-                    reject(err)
-                  })
-                  .on('close', () => {
-                    vblog(`[downloadVideo] <in Promise> for...of request for file piece(${idx}/${ranges.length}) ended, Stream closed`)
-                    resolve(`file${idx} has been downloaded!`)
-                    idx += 1
-                  })
-              }))
-            } catch (error) {
-              oneFile = null
-              log('err', error, true)
-              log('alert', 'download chunk failed, will soon retry')
-            }
-          }
-          // ----- end of while
-          // ----- end of request for file frag -----
-          const tmr = vblog.stopWatch('scrapy.js-downloadVideo-piece', false)
-          const tmc = chalk.yellowBright(tmr.toFixed(1))
-          const avs = chalk.redBright(hs(httpChunkBytes / tmr * 1000, 1))
-          vblog(`[downloadVideo] <in Promise> for...of piece(${idx}/${ranges.length}) exits, time cost ${tmc} ms, speed ${avs}/s`)
-        }
-
-        log('info', 'all pieces have been downloaded, now concat pieces...')
-
-        const ws = fs.createWriteStream(transferedDstWithRank, { flags: 'a', highWaterMark: 33554432 })
-
-        for (const file of files) {
-          vblog(`[downloadVideo] <in Promise> for...of at file=${file}`)
-
-          const tmpRead = fs.createReadStream(transferBadSymbolOnPathName(file), { flags: 'r', highWaterMark: 2097152 })
-
-          await new Promise((__res, __rej) => {
-            vblog(`[downloadVideo] <in Promise> for...of <in Promise> pipes file to ${transferedDstWithRank}`)
-
-            tmpRead.pipe(ws, { end: false })
-            tmpRead.on('end', () => {
-              __res()
-            })
-            tmpRead.on('error', e => {
-              __rej(e)
-            })
-          })
-
-          vblog('[downloadVideo] <in Promise> for...of <in Promise> deletes file')
-          await fsp.unlink(transferBadSymbolOnPathName(file))
-        }
-        ws.end()
-
-        vblog('[downloadVideo] <in Promise> piping ended, will write dlist.txt')
-
-        fs.writeFileSync('./dlist.txt', transferedTitle + '\n', { flag: 'a+', encoding: 'utf-8' })
-
-        const ret = [`${dst} downloaded!`, contentTotalLength, transferedFilenameWithRank]
-
-        vblog(`[downloadVideo] exits with ret=${util.inspect(ret, false, Infinity, true)} inside Promise`)
-        vblog(`[downloadVideo] time cost ${chalk.yellowBright(prettyMilliseconds(vblog.stopWatch('scrapy.js-downloadVideo', false), { verbose: true }))}`)
-
-        return resolve(ret)
-        //}
-        // else {
-        //   return resolve(['skip small file (size less than [httpChunkSizeKB]).', 0])
-        // }
-      })
-      .on('error', err => {
-        log('err', 'error when start to fetch file info: ' + err, true)
-        reject(err)
-      })
+  const progressBar = new ProgressBar(`${downloadText} ${shortTitle} [:bar] :spd/s ${pieceText}::piece :percent ${eatText}::etas`, {
+    incomplete: ' ',
+    complete: '-',
+    width: process.stdout.columns - 90,
+    total: contentTotalLength
   })
 
-  return pm
+  const files = []
+  let idx = 0
+
+  const analyzingSteps = 12
+  const dlTimeQueue = new LimitedQueue(analyzingSteps)
+  const dlChunkQueue = new LimitedQueue(analyzingSteps)
+
+  dlTimeQueue.push(perf.now())
+  dlChunkQueue.push(0)
+
+  for (const item of ranges) {
+    vblog.stopWatch('scrapy.js-downloadVideo-piece', true)
+    vblog(`[downloadVideo] for...of at range=(${chalk.bold(item.start)}, ${chalk.bold(item.end)})`)
+
+    const file = path.join(dir, `${ditem.key}${idx}`)
+
+    files.push(file)
+
+    const standardFile = transferBadSymbolOnPathName(file)
+
+    if (fs.existsSync(standardFile)) {
+      const tmpStat = fs.statSync(standardFile)
+      vblog(`[downloadVideo] <in Promise> for...of check file piece(${idx}/${ranges.length}) ${chalk.greenBright('(Exists)')} (Size: ${chalk.blueBright(tmpStat.size)})`)
+      if (tmpStat.size === httpChunkBytes) {
+        log('warn', `detect file ${file} (piece ${idx}/${ranges.length}) already downloaded, skip it`)
+        idx += 1
+        progressBar.tick(httpChunkBytes)
+        continue
+      }
+      else {
+        vblog(`file ${file} (piece ${idx}/${ranges.length}) exists but ${chalk.yellowBright('Incomplete')}, redownload it`)
+      }
+    }
+
+    // ----- Download the file frags -----
+    const bdOpt = {
+      headers: Object.assign(_.cloneDeep(customHeaders), {
+        Accept: '*/*',
+        'Accept-Encoding': 'identity',
+        Range: `bytes=${item.start}-${item.end}`,
+        Pragma: 'no-cache',
+        'Cache-Control': 'no-cache'
+      }),
+      retry: 5,
+      onRetry() {
+        log('warn', '[Fetch] retrying...')
+      }
+    }
+    if (config.proxyUrl.trim().length > 0) {
+      bdOpt.proxy = config.proxyUrl.trim()
+    }
+    // console.log(util.inspect(bdOpt.headers.Range, false, Infinity, true))
+    const bytesFetch = makeFetchHappen.defaults(bdOpt)
+
+    /**
+     * @type {Buffer | null}
+     */
+    let oneFile = null
+
+    while (!oneFile) {
+      vblog(`[downloadVideo] for...of while loop for file piece(${idx}/${ranges.length}) entered`)
+
+      try {
+        const res = await bytesFetch(ditem.videoUrl)
+        vblog(`[downloadVideo] for...of Request for file piece(${idx}/${ranges.length}) responed with
+Code=${res.status}
+Header=${util.inspect(res.headers, false, 2, true)}`)
+
+        if (res.status !== 206) {
+          throw new Error(`error code ${chalk.redBright(res.status)} while downloading piece`)
+        }
+
+        // oneFile = await res.buffer()
+
+        // console.log(`Downloaded bytes ${oneFile.length}, Speed ${hs(oneFile.length / (perf.now() - timeStart) * 1000, 1)}`)
+        // process.exit(0)
+
+        // const timePE = perf.now()
+        // downloadedBytes += oneFile.length
+        // const avgSpeed = hs(downloadedBytes / (timePE - timeStart) * 1000, 1)
+        // progressBar.tick(oneFile.length, {
+        //   spd: avgSpeed,
+        //   piece: `${idx}/${ranges.length}`
+        // })
+
+        // await fsp.writeFile(standardFile, oneFile, { encoding: 'binary' })
+
+        // idx += 1
+
+        oneFile = await new Promise((resolve, reject) => {
+          res.body.pipe(progressStream({ time: 17, speed: Infinity }))
+          .on('error', err => {
+            reject(err)
+          })
+          .on('progress', innerProgress => {
+            const progressTime = perf.now()
+
+            downloadedBytes += innerProgress.delta
+
+            dlTimeQueue.push(progressTime)
+            dlChunkQueue.push(downloadedBytes)
+
+            progressBar.tick(innerProgress.delta, {
+              // spd: hs(downloadedBytes / (progressTime - timeStart) * 1000, 1),
+              spd: hs((dlChunkQueue.last - dlChunkQueue.first) / (dlTimeQueue.last - dlTimeQueue.first) * 1000, 1),
+              piece: `${idx}/${ranges.length}`
+            })
+          })
+          .pipe(fs.createWriteStream(standardFile, { encoding: 'binary', highWaterMark: httpChunkBytes }))
+          .on('error', err => {
+            reject(err)
+          })
+          .on('close', () => {
+            vblog(`[downloadVideo] for...of Request for file piece(${idx}/${ranges.length}) ended, Stream closed`)
+            idx += 1
+            resolve(true)
+          })
+        })
+      } catch (error) {
+        oneFile = null
+        log('err', error, true)
+        log('alert', 'download chunk failed, will soon retry')
+      }
+    } // ----- end of while
+    const tmr = vblog.stopWatch('scrapy.js-downloadVideo-piece', false)
+    const tmc = chalk.yellowBright(tmr.toFixed(1))
+    const avs = chalk.redBright(hs(httpChunkBytes / tmr * 1000, 1))
+    vblog(`[downloadVideo] for...of piece(${idx}/${ranges.length}) exits, time cost ${tmc} ms, speed ${avs}/s`)
+  }
+
+  log('info', 'all pieces have been downloaded, now concat pieces...')
+
+  const ws = fs.createWriteStream(transferedDstWithRank, { flags: 'a', highWaterMark: 33554432 })
+
+  for (const file of files) {
+    vblog(`[downloadVideo] <in Promise> for...of at file=${file}`)
+
+    const standardFile = transferBadSymbolOnPathName(file)
+
+    const tmpRead = fs.createReadStream(standardFile, { flags: 'r', highWaterMark: httpChunkBytes })
+
+    await new Promise((__res, __rej) => {
+      vblog(`[downloadVideo] <in Promise> for...of <in Promise> pipes file to ${transferedDstWithRank}`)
+
+      tmpRead.pipe(ws, { end: false })
+      tmpRead.on('end', () => {
+        __res()
+      })
+      tmpRead.on('error', e => {
+        __rej(e)
+      })
+    })
+
+    vblog('[downloadVideo] <in Promise> for...of <in Promise> deletes file')
+    // await fsp.unlink(standardFile)
+    fsp.unlink(standardFile)
+  }
+  ws.end()
+
+  vblog('[downloadVideo] <in Promise> piping ended, appending dlist.txt')
+
+  // comment while debug
+  fs.writeFileSync('./dlist.txt', transferedTitle + '\n', { flag: 'a+', encoding: 'utf-8' })
+
+  const ret = [`${dst} downloaded!`, contentTotalLength, transferedFilenameWithRank]
+
+  // vblog(`[downloadVideo] exits with ret=${util.inspect(ret, false, Infinity, true)}`)
+  vblog(`[downloadVideo] time cost ${chalk.yellowBright(prettyMilliseconds(vblog.stopWatch('scrapy.js-downloadVideo', false), { verbose: true }))}`)
+
+  return ret
 }
 
 module.exports = {
