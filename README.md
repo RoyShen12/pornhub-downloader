@@ -39,6 +39,12 @@ npm install
 node src -s <search keyword>
 ```
 
+##### npm install failed on Linux
+
+1. install pip, command on Ubuntu 16/18 is `apt install python-pip -y`
+
+2. `pip install ast`
+
 ### Example 例子
 
 #### Multi Keywords Searching 多关键词搜索
