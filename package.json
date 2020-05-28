@@ -3,6 +3,7 @@
   "version": "0.0.6",
   "description": "video downloader for pornhub",
   "main": "src/index.js",
+  "bin": "src/index.js",
   "files": [
     "src",
     ".eslintrc",
@@ -12,7 +13,8 @@
     "README.md"
   ],
   "scripts": {
-    "start": "node src"
+    "start": "node src",
+    "pkg": "pkg . -t macos-x64 --out-path=dist-mac/ && cp node_modules/**/*.node dist-mac/ && pkg . -t win-x64 --out-path=dist-win/"
   },
   "repository": {
     "type": "git",
@@ -40,9 +42,11 @@
     "meow": "^7.0.1",
     "pretty-ms": "^5.1.0",
     "progress": "^2.0.3",
-    "progress-stream": "^2.0.0"
+    "progress-stream": "^2.0.0",
+    "throttle": "^1.0.3"
   },
   "devDependencies": {
-    "eslint": "^5.16.0"
+    "eslint": "^5.16.0",
+    "pkg": "^4.4.8"
   }
 }

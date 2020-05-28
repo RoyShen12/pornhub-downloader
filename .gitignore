@@ -61,6 +61,8 @@ typings/
 downloads
 debug
 .cache
+dist-mac
+dist-win
 
 .DS_Store
 

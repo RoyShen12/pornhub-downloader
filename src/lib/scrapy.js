@@ -13,7 +13,7 @@ fs.existsSync(tempDir) || fs.mkdirSync(tempDir)
 /**
  * @type {{ proxyUrl: string, timeout: number, downloadDir: string, httpChunkSizeKB: number }}
  */
-const config = JSON.parse(fs.readFileSync('config.json').toString())
+const config = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'config.json')).toString())
 
 
 const _ = require('lodash')
@@ -29,6 +29,8 @@ const cheerio = require('cheerio')
 
 // const request = require('request')
 const makeFetchHappen = require('make-fetch-happen')
+
+const Throttle = require('throttle')
 
 const hs = require('human-size')
 const prettyMilliseconds = require('pretty-ms')
@@ -349,7 +351,7 @@ async function downloadVideo(ditem, folderName, downloadCount, parallel) {
   }
 
   // check dl list
-  const oldFiles = fs.readFileSync('./dlist.txt', 'utf-8').toString().split('\n')
+  const oldFiles = fs.readFileSync(path.join(process.cwd(), './dlist.txt'), 'utf-8').toString().split('\n')
   if (oldFiles.includes(transferedTitle)) {
     return [`${title} already exists in dlist.txt!`, 0]
   }
@@ -523,7 +525,13 @@ Header=${util.inspect(res.headers, false, 2, true)}`)
         // idx += 1
 
         oneFile = await new Promise((resolve, reject) => {
-          res.body.pipe(progressStream({ time: 17, speed: Infinity }))
+          let OriginStream = res.body
+
+          if (global.cli.flags.limitSpeed) {
+            OriginStream = OriginStream.pipe(new Throttle(global.cli.flags.limitSpeed * 1024))
+          }
+
+          OriginStream.pipe(progressStream({ time: 17, speed: Infinity }))
           .on('error', err => {
             reject(err)
           })

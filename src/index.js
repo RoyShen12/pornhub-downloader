@@ -1,17 +1,16 @@
 process.env.TZ = 'Asia/Shanghai'
 // process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'
 
-// const childProcess = require('child_process')
 const fs = require('fs')
+const path = require('path')
 
 /**
  * @type {{ proxyUrl: string, timeout: number, downloadDir: string, httpChunkSizeKB: number, aria2: any }}
  */
-const config = JSON.parse(fs.readFileSync('config.json').toString())
+const config = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'config.json')).toString())
 
 const os = require('os')
 // const util = require('util')
-const path = require('path')
 const { performance } = require('perf_hooks')
 const fetch = require('make-fetch-happen').defaults()
 const logger = require('./lib/logger')
@@ -42,6 +41,9 @@ const cli = meow(`
 
       -a, --amount <num>        Only download specified amount of files, default is Infinity
                                 仅下载指定数量的视频后结束任务
+
+      --limit-speed <num>       Limit download speed to specified rate (KB)
+                                限制下载速度为指定值，单位是 KB
 
       -l, --limit <num>         Limitation of the downloading content (MB), default is Infinity
                                 指定下载的总大小，到达指定大小后结束任务，单位是 MB
@@ -84,6 +86,7 @@ const cli = meow(`
       exclude: {
         alias: 'e'
       },
+      limitSpeed: {},
       limit: {
         alias: 'l',
         default: 'Infinity'
@@ -100,10 +103,8 @@ const cli = meow(`
         default: '0'
       },
       skipless: {
-        default: '0'
       },
       skipmore: {
-        default: 'Infinity'
       },
       rebuildDlist: {
         type: 'boolean'
@@ -156,7 +157,7 @@ const stdin = process.stdin
 
 stdin.setEncoding('utf8')
 stdin.on('readable', function() {
-  var chunk = process.stdin.read();
+  const chunk = process.stdin.read()
   //
   // Restart process when user inputs stop
   //
@@ -167,6 +168,7 @@ stdin.on('readable', function() {
 })
 
 const run = async () => {
+  if (cli.flags.limitSpeed) log('info', `netword limitation: ${hs(cli.flags.limitSpeed * 1024)}/s`)
   vblog('[main run] entered')
 
   fs.existsSync(config.downloadDir) || fs.mkdirSync(config.downloadDir)
@@ -239,7 +241,7 @@ const run = async () => {
     let downloadCount = 0
 
     // --- download loop ---
-    while (downloadedSize <= limit && downloadCount < amountLimit) {
+    while (downloadedSize <= limit && downloadCount < amountLimit && !processShutdownToken) {
 
       const opts = {
         page,
@@ -361,7 +363,7 @@ total download content size: ${hs(downloadedSize)}`)
 }
 
 if (cli.flags.rebuildDlist) {
-  const older = new Set(fs.readFileSync('./dlist.txt').toString().split('\n'))
+  const older = new Set(fs.readFileSync(path.join(process.cwd(), './dlist.txt')).toString().split('\n'))
   fs.readdirSync(config.downloadDir).forEach(dp => {
     const dpath = path.resolve(config.downloadDir, dp)
     const dstat = fs.statSync(dpath)
