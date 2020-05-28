@@ -31,12 +31,40 @@ Download highest quality videos from [pornhub](https://pornhub.com).
 
 * Internet that can access [pornhub.com](https://www.pornhub.com).
 
-## Usage
+## Usage 使用方法
 
 ```shell
 git clone https://github.com/RoyShen12/pornhub-downloader.git
 npm install
 node src -s <search keyword>
+```
+
+### Example 例子
+
+#### Multi Keywords Searching 多关键词搜索
+
+```shell
+node src -s Lesbian,muscle
+```
+
+#### Keywords Searching With Keywords Excluding 搜索并过滤部分结果
+
+```shell
+node src -s Lesbian -e japanese,jav
+```
+
+#### Jumping First Four ADs 跳过前4个推广视频
+
+```shell
+node src -s <search keyword> --skip 4
+```
+
+#### Preview Videos And Don't Download(only on Mac with iTerm>2.9) 仅预览视频缩略图，并不实际下载（需要Mac与iTerm版本>2.9）
+
+```shell
+node src -s <search keyword> -f --preview --preview-size 50
+# or
+node src -s <search keyword> --list-only --preview --preview-size 50
 ```
 
 ## More Options

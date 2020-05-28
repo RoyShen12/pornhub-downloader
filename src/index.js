@@ -29,19 +29,46 @@ const cli = meow(`
 
     Options
       -s, --search <str>        Searching key word
+                                搜索关键词下载
+
       -k, --key <str>           Sprightly download target video from given key (or muitl keys sepreted by commas)
+                                直接下载ph号
+
       -p, --parallel <num>  (ex)Enable parallel downloading to accelerate download speed
+                                多线程下载（实验性功能）
+
       -e, --exclude <str>       Excluding key word (or muitl words sepreted by commas) using for title filter
+                                关键词过滤，对视频的标题进行过滤，多个关键词请用英文逗号连接
+
       -a, --amount <num>        Only download specified amount of files, default is Infinity
+                                仅下载指定数量的视频后结束任务
+
       -l, --limit <num>         Limitation of the downloading content (MB), default is Infinity
+                                指定下载的总大小，到达指定大小后结束任务，单位是 MB
+
       -f, --fakerun             Fake running (Dry run), won't actually download anything
+                                干运行，不会实际下载视频、写入dlist
+
       --skip <num>              Skip the first few videos
+                                跳过前 N 个视频
+
       --skipless <num>          Skipping file smaller than the given size (MB)
+                                跳过小于指定大小的视频，单位是 MB
+
       --skipmore <num>          Skipping file larger than the given size (MB)
+                                跳过大于指定大小的视频，单位是 MB
+
       --rebuild-dlist           Rebuild the dlist.txt by searching the download path
+
       --list-only               Only list keys from searching key word
+                                仅列出搜索结果的ph号，并不会实际下载
+
       --preview                 Show preview image of each video before downloading
+                                显示缩略图预览（需要Mac与iTerm版本>2.9）
+
       --preview-size <num>      Preview image height for iTerm2 only (show while --list-only or --verbose flag is on), default is 40px
+                                缩略图显示尺寸，默认是40px
+
       --verbose                 Make the process more talkative
 `, {
     flags: {
