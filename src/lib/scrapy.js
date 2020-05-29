@@ -446,12 +446,12 @@ async function downloadVideo(ditem, folderName, downloadCount, parallel) {
   // 78 + [bar] + [piece] + [progress]
   // 极限情况
   // SC:
-  // 下载 title [bar] 582.9KB/s 116.42MB/996.42MB 块:116/997 100% 剩余:0.0s
-  // 83+bar
+  // 下载 title [bar] 582.9KB/s 116.42MB/996.42MB 块:116/997 100% 剩余:4400.0s
+  // 86+bar
   const progressBar = new ProgressBar(`${downloadText} ${shortTitle} [:bar] :spd/s :prog ${pieceText}::piece :percent ${eatText}::etas`, {
     incomplete: ' ',
     complete: '-',
-    width: process.stdout.columns - 90,
+    width: process.stdout.columns - 95,
     total: contentTotalLength
   })
 
