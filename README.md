@@ -50,7 +50,7 @@ node src -s <search keyword>
 #### Multi Keywords Searching 多关键词搜索
 
 ```shell
-node src -s Lesbian,muscle
+node src -s Lesbian+muscle
 ```
 
 #### Keywords Searching With Keywords Excluding 搜索并过滤部分结果
@@ -59,7 +59,7 @@ node src -s Lesbian,muscle
 node src -s Lesbian -e japanese,jav
 ```
 
-#### Jumping First Four ADs 跳过前4个推广视频
+#### ~~Jumping First Four ADs 跳过前4个推广视频~~ Now support ADs auto jumping 现在支持自动跳过推广视频
 
 ```shell
 node src -s <search keyword> --skip 4

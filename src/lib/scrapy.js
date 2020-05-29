@@ -18,7 +18,6 @@ const config = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'config.json'
 
 const _ = require('lodash')
 
-// const axios = require('axios')
 const chalk = require('chalk').default
 
 const imgcat = require('imgcat')
@@ -33,26 +32,35 @@ const makeFetchHappen = require('make-fetch-happen')
 const Throttle = require('throttle')
 
 const hs = require('human-size')
+const pretty = require('pretty')
 const prettyMilliseconds = require('pretty-ms')
 const ProgressBar = require('progress')
 const progressStream = require('progress-stream')
 
-const usingCN = process.env.LANG && process.env.LANG.includes('zh_CN')/* || os.platform() === 'win32'*/
-const downloadText = usingCN ? '下载' : 'downloading'
-const eatText = usingCN ? '剩余' : 'EAT'
-const pieceText = usingCN ? '块' : 'Piece'
+const LANGS = require('./LANG')
+
+const downloadText = LANGS.downloading
+const eatText = LANGS.EAT
+const pieceText = LANGS.Piece
 
 const { performance } = require('perf_hooks')
 const perf = performance
 
 const log = require('./logger').getLogger('main')
 
-const LimitedQueue = require('../lib/limited-queue')
+const LimitedQueue = require('./limited-queue')
 
 // in windows, file name should not contain these symbols
 // * : " * ? < > |
 // here is the method to transfer these symbol to leagal ones
-const { transferBadSymbolOnFileName, transferBadSymbolOnPathName, fileNameToTitle, randomStr } = require('./str')
+const {
+  transferBadSymbolOnFileName,
+  transferBadSymbolOnPathName,
+  fileNameToTitle,
+  randomStr,
+  WideStr,
+  DateTimeToFileString
+} = require('./str')
 
 const vblog = require('./verbose')
 
@@ -70,7 +78,8 @@ const customHeaders = {
   // 'Host': domain,
   // 'Referer': baseUrl,
   // 'Upgrade-Insecure-Requests': '1',
-  'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_14) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/12.0 Safari/605.1.15'
+  // 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_5) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/13.1.1 Safari/605.1.15'
+  'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/83.0.4103.61 Safari/537.36'
 }
 
 const baseFetchOptions = {
@@ -78,13 +87,13 @@ const baseFetchOptions = {
   headers: customHeaders,
   retry: 5,
   onRetry() {
-    log('warn', '[Fetch] retrying...')
+    log('warn', `[Fetch] ${LANGS.retrying}...`)
   }
 }
 
 // proxy
 if (config.proxyUrl.trim().length > 0) {
-  log('notice', `Using Proxy: ${chalk.yellowBright(config.proxyUrl.trim())}`)
+  log('notice', `${LANGS['Using Proxy']}: ${chalk.yellowBright(config.proxyUrl.trim())}`)
   baseFetchOptions.proxy = config.proxyUrl.trim()
 }
 
@@ -101,7 +110,7 @@ async function findKeys(opts) {
   vblog.stopWatch('findKeys-requests', true)
   vblog(`[findKeys] entered, opt=${util.inspect(opts, false, Infinity, true)}`)
 
-  const url = `${baseUrl}/video/search?search=${encodeURIComponent(opts.search.trim())}&page=${opts.page}`
+  const url = `${baseUrl}/video/search?search=${encodeURIComponent(opts.search.trim())}&page=${opts.page}` // &suggestion=true
   vblog(`[findKeys] requests to ${chalk.greenBright(url)}`)
   const res = await fetch(url)
   // console.log(res)
@@ -110,6 +119,7 @@ async function findKeys(opts) {
    */
   const text = await res.text()
   // console.log(text)
+  if (global.cli.flags.verbose) fs.writeFileSync(`./debug/search-${DateTimeToFileString(new Date(), true, true, true, true)}.html`, pretty(text))
   const $ = cheerio.load(text)
   /**
    * @type {string[]}
@@ -123,7 +133,7 @@ async function findKeys(opts) {
   $('.videoblock.videoBox').each((_idx, element) => {
     const key = element.attribs['_vkey']
     vblog(`[findKeys] working on .videoblock.videoBox Node, key=${chalk.greenBright(key)}`)
-    const $$ = cheerio.load(element)
+    const $$ = cheerio.load($(element).html())
     const previewImg = $$('img')
     const alt = previewImg.attr('alt')
     const imgUrl = previewImg.attr('data-thumb_url')
@@ -135,11 +145,13 @@ async function findKeys(opts) {
   const skipKeys = []
   $('.dropdownHottestVideos .videoblock.videoBox').each((idx, element) => {
     const key = element.attribs['_vkey']
+    vblog(`[findKeys] working on .dropdownHottestVideos .videoblock.videoBox Node, exclude key=${chalk.greenBright(key)}`)
     skipKeys.push(key)
   })
 
   $('.dropdownReccomendedVideos .videoblock.videoBox').each((idx, element) => {
     const key = element.attribs['_vkey']
+    vblog(`[findKeys] working on .dropdownReccomendedVideos .videoblock.videoBox Node, exclude key=${chalk.greenBright(key)}`)
     skipKeys.push(key)
   })
 
@@ -152,13 +164,13 @@ async function findKeys(opts) {
     for (const rk of retKeys) {
       try {
         const { name, img } = previews.get(rk)
-        console.log('downloading image', img)
+        // console.log('downloading image', img)
         let imgBuf = await (await fetch(img)).buffer()
-        console.log('download ok.')
+        // console.log('download ok.')
         const imgTfName = `${randomStr(16)}.jpg`
         const imgTfPath = path.resolve(tempDir, imgTfName)
         await fsp.writeFile(imgTfPath, imgBuf)
-        console.log(`key: ${rk} name: ${name} preview: ${imgTfPath}`)
+        // console.log(`key: ${rk} name: ${name} preview: ${imgTfPath}`)
         /**
          * @type {string}
          */
@@ -207,7 +219,7 @@ function parseDownloadInfo(bodyStr) {
   vblog.stopWatch('parseDIF', true)
   vblog(`[parseDownloadInfo] entered, (bodyStr length=${bodyStr.length})`)
 
-  // fs.writeFileSync('./debug/bodyStr.html', bodyStr)
+  if (global.cli.flags.verbose) fs.writeFileSync(`./debug/video-${DateTimeToFileString(new Date(), true, true, true, true)}.html`, pretty(bodyStr))
 
   let info
   const idx = bodyStr.indexOf('mediaDefinitions')
@@ -305,7 +317,9 @@ async function downloadVideo(ditem, folderName, downloadCount, parallel) {
 
   const title = ditem.title.trim()
 
-  const shortTitle = title.length <= 20 ? title : (title.substr(0, 17) + '...')
+  const _wide_title = new WideStr(title)
+
+  const shortTitle = _wide_title.length <= 20 ? title : (_wide_title.substr(0, 17) + '...')
 
   const transferedTitle = transferBadSymbolOnFileName(title)
   const filename = `${transferedTitle}_${ditem.quality}P_${ditem.key}.mp4`
@@ -356,7 +370,7 @@ async function downloadVideo(ditem, folderName, downloadCount, parallel) {
     return [`${title} already exists in dlist.txt!`, 0]
   }
 
-  log('notice', `ready to downloading > ${filename}`)
+  log('notice', `start downloading > ${filename}`)
   vblog(`[downloadVideo] requests to ${chalk.greenBright(ditem.videoUrl)}`)
 
   const res = await fetch(ditem.videoUrl)
@@ -371,11 +385,11 @@ async function downloadVideo(ditem, folderName, downloadCount, parallel) {
 
   if (global.cli.flags.fakerun) return ['fake downloaded!', contentTotalLength]
 
-  if (global.cli.flags.skipless && contentTotalLength < global.cli.flags.skipless * 1024 * 1024) {
+  if (global.cli.flags.skipless && contentTotalLength < global.cli.flags.skipless * 1024 ** 2) {
     return ['skip this video (size too small for --skipless)', 0]
   }
 
-  if (global.cli.flags.skipmore && contentTotalLength > global.cli.flags.skipmore * 1024 * 1024) {
+  if (global.cli.flags.skipmore && contentTotalLength > global.cli.flags.skipmore * 1024 ** 2) {
     return ['skip this video (size too large for --skipmore)', 0]
   }
 
@@ -385,7 +399,7 @@ async function downloadVideo(ditem, folderName, downloadCount, parallel) {
     throw new Error('skip this video (no free disk space remains)')
   }
   else {
-    log('verbose', `disk free space: ${hs(diskusage.free, 1)}\n`)
+    log('verbose', `disk free space: ${hs(diskusage.free, 2)}\n`)
   }
 
   /**
@@ -421,14 +435,20 @@ async function downloadVideo(ditem, folderName, downloadCount, parallel) {
   /**
    * Download Start time
    */
-  const timeStart = perf.now()
+  // const timeStart = perf.now()
 
   /**
    * Total downloaded size
    */
   let downloadedBytes = 0
 
-  const progressBar = new ProgressBar(`${downloadText} ${shortTitle} [:bar] :spd/s ${pieceText}::piece :percent ${eatText}::etas`, {
+  // [11]1[20]1[bar]1[spd]1[5]1[piece]7[3][EAT]
+  // 78 + [bar] + [piece] + [progress]
+  // 极限情况
+  // SC:
+  // 下载 title [bar] 582.9KB/s 116.42MB/996.42MB 块:116/997 100% 剩余:0.0s
+  // 83+bar
+  const progressBar = new ProgressBar(`${downloadText} ${shortTitle} [:bar] :spd/s :prog ${pieceText}::piece :percent ${eatText}::etas`, {
     incomplete: ' ',
     complete: '-',
     width: process.stdout.columns - 90,
@@ -480,7 +500,7 @@ async function downloadVideo(ditem, folderName, downloadCount, parallel) {
       }),
       retry: 5,
       onRetry() {
-        log('warn', '[Fetch] retrying...')
+        log('warn', `[Fetch] ${LANGS['retrying']}...`)
       }
     }
     if (config.proxyUrl.trim().length > 0) {
@@ -546,10 +566,11 @@ Header=${util.inspect(res.headers, false, 2, true)}`)
             progressBar.tick(innerProgress.delta, {
               // spd: hs(downloadedBytes / (progressTime - timeStart) * 1000, 1),
               spd: hs((dlChunkQueue.last - dlChunkQueue.first) / (dlTimeQueue.last - dlTimeQueue.first) * 1000, 1),
-              piece: `${idx}/${ranges.length}`
+              piece: `${idx}/${ranges.length}`,
+              prog: chalk.bold(`${hs(downloadedBytes, 2)}/${hs(contentTotalLength, 2)}`)
             })
           })
-          .pipe(fs.createWriteStream(standardFile, { encoding: 'binary', highWaterMark: httpChunkBytes }))
+          .pipe(fs.createWriteStream(standardFile, { encoding: 'binary', highWaterMark: Math.round(httpChunkBytes * 1.25) }))
           .on('error', err => {
             reject(err)
           })
@@ -562,7 +583,7 @@ Header=${util.inspect(res.headers, false, 2, true)}`)
       } catch (error) {
         oneFile = null
         log('err', error, true)
-        log('alert', 'download chunk failed, will soon retry')
+        log('alert', 'downloading chunk fails, waiting for retry')
       }
     } // ----- end of while
     const tmr = vblog.stopWatch('scrapy.js-downloadVideo-piece', false)
@@ -571,9 +592,9 @@ Header=${util.inspect(res.headers, false, 2, true)}`)
     vblog(`[downloadVideo] for...of piece(${idx}/${ranges.length}) exits, time cost ${tmc} ms, speed ${avs}/s`)
   }
 
-  log('info', 'all pieces have been downloaded, now concat pieces...')
+  // log('info', 'all pieces have been downloaded, now concat pieces...')
 
-  const ws = fs.createWriteStream(transferedDstWithRank, { flags: 'a', highWaterMark: 33554432 })
+  const ws = fs.createWriteStream(transferedDstWithRank, { flags: 'a', highWaterMark: 32 * 1024 ** 2 }) // 32 MB write cache
 
   for (const file of files) {
     vblog(`[downloadVideo] <in Promise> for...of at file=${file}`)

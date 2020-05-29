@@ -72,3 +72,5 @@ search.log
 
 *.sh
 *.gz
+*.tgz
+*.zip

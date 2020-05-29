@@ -9,17 +9,18 @@ const path = require('path')
  */
 const config = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'config.json')).toString())
 
-const os = require('os')
 // const util = require('util')
 const { performance } = require('perf_hooks')
 const fetch = require('make-fetch-happen').defaults()
-const logger = require('./lib/logger')
 const hs = require('human-size')
 const prettyMilliseconds = require('pretty-ms')
 const meow = require('meow')
+const chalk = require('chalk').default
 
+const logger = require('./lib/logger')
 const vblog = require('./lib/verbose')
 const strTools = require('./lib/str')
+const LANGS = require('./lib/LANG')
 
 const cli = meow(`
     Usage
@@ -124,30 +125,35 @@ const cli = meow(`
     }
 })
 
+logger.initNewLogger('main', (t, m) => console.log(logger.logLevelToColor(t)(m)))
+const log = logger.getLogger('main')
+
 if (cli.flags.skipless && isNaN(+cli.flags.skipless)) {
-  console.log('bad arg --skipless, should be a number')
+  console.log(`--skipless: ${LANGS['Invalid number value']} '${cli.flags.skipless}'`)
   process.exit(0)
 }
 
 if (cli.flags.skipmore && isNaN(+cli.flags.skipmore)) {
-  console.log('bad arg --skipless, should be a number')
+  console.log(`--skipless: : ${LANGS['Invalid number value']} '${cli.flags.skipmore}'`)
   process.exit(0)
 }
 
 if (cli.flags.parallel && isNaN(+cli.flags.parallel)) {
-  console.log('bad arg -p(--parallel), should be a number')
+  console.log(`--parallel (-p): ${LANGS['Invalid number value']} '${cli.flags.parallel}'`)
   process.exit(0)
+}
+
+if (cli.flags.limitSpeed) {
+  if (isNaN(+cli.flags.limitSpeed)) {
+    console.log(`--limitSpeed: ${LANGS['Invalid number value']} '${cli.flags.limitSpeed}'`)
+    process.exit(0)
+  }
+  log('info', `${LANGS['netword limitation']}: ${hs(cli.flags.limitSpeed * 1024)}/s`)
 }
 
 global.cli = cli
 
 fs.existsSync('./dlist.txt') || fs.writeFileSync('./dlist.txt', '')
-
-const tmpp = path.resolve(os.tmpdir(), strTools.randomStr(16))
-fs.existsSync(tmpp) || fs.mkdirSync(tmpp)
-
-logger.initNewLogger('main', (t, m) => console.log(logger.logLevelToColor(t)(m)))
-const log = logger.getLogger('main')
 
 const scrapy = require('./lib/scrapy')
 
@@ -162,13 +168,16 @@ stdin.on('readable', function() {
   // Restart process when user inputs stop
   //
   if (chunk !== null && chunk === 'stop\n' || chunk === 'stop\r\n') {
-    log('alert', 'process will shutdown after current download finish.')
+    log('alert', LANGS['process will shutdown after current download finish.'])
     processShutdownToken = true
   }
 })
 
+if (cli.flags.verbose) {
+  fs.existsSync('./debug') || fs.mkdirSync('./debug')
+}
+
 const run = async () => {
-  if (cli.flags.limitSpeed) log('info', `netword limitation: ${hs(cli.flags.limitSpeed * 1024)}/s`)
   vblog('[main run] entered')
 
   fs.existsSync(config.downloadDir) || fs.mkdirSync(config.downloadDir)
@@ -186,7 +195,7 @@ const run = async () => {
 
 
   if (!search && !key) {
-    console.log('cannot run with both --search and --key flags are not given!')
+    console.log(LANGS['The program cannot run if neither --search nor --key is provided!'])
     process.exit(0)
   }
 
@@ -203,7 +212,7 @@ const run = async () => {
       }
     }
 
-    log('suc', 'task finished.')
+    log('suc', LANGS['task finished.'])
     process.exit(0)
   }
   // Search Mode
@@ -214,25 +223,27 @@ const run = async () => {
     const skip = +cli.flags.skip
 
     if (isNaN(limit)) {
-      console.log('bad arg --limit (-l), should be a number')
+      console.log(`--limit (-l): ${LANGS['Invalid number value']} '${cli.flags.limit}'`)
       process.exit(0)
     }
 
     if (isNaN(amountLimit)) {
-      console.log('bad arg --amount (-a), should be a number')
+      console.log(`--amount (-a): ${LANGS['Invalid number value']} '${cli.flags.amount}'`)
       process.exit(0)
     }
 
     if (isNaN(skip)) {
-      console.log('bad arg --skip, should be a number')
+      console.log(`--skip: ${LANGS['Invalid number value']} '${cli.flags.skip}'`)
       process.exit(0)
     }
 
+    const limitBytes = limit * 1024 ** 2
+
     let downloadedSize = 0
 
-    log('info', `set limit dl size: ${limit} MB, dl amount: ${amountLimit}`)
-    log('info', `set search key: ${search}`)
-    log('notice', 'input "stop" to terminate this program after the current download task finished.')
+    log('info', `set Maximum download size: ${chalk.blueBright(limit + '')} MB, Maximum download amount: ${chalk.blueBright(amountLimit + '')}`)
+    log('info', `set search keyword: ${chalk.blueBright(search)}`)
+    log('notice', LANGS['type "stop" and enter, and this program will be terminated after the current download task finished.'])
 
     fs.writeFileSync('./search.log', (new Date().toLocaleString() + '   ') + search + '\n', {
       flag: 'a+', encoding: 'utf-8'
@@ -241,7 +252,7 @@ const run = async () => {
     let downloadCount = 0
 
     // --- download loop ---
-    while (downloadedSize <= limit && downloadCount < amountLimit && !processShutdownToken) {
+    while (downloadedSize <= limitBytes && downloadCount < amountLimit && !processShutdownToken) {
 
       const opts = {
         page,
@@ -263,7 +274,7 @@ const run = async () => {
       }
 
       if (page === 1 && skip > 0) {
-        log('notice', `[main download] will skip first ${skip} results`)
+        log('notice', `skipping first ${skip} results`)
         // console.log(keys)
         new Array(skip).fill(1).forEach(() => keys.shift())
         // console.log(keys)
@@ -273,7 +284,7 @@ const run = async () => {
       for (const key of keys) {
         vblog(`[main download] for...of loop entered, key=${key}`)
 
-        if (downloadedSize > limit || downloadCount >= amountLimit || processShutdownToken) {
+        if (downloadedSize > limitBytes || downloadCount >= amountLimit || processShutdownToken) {
           break
         }
 
@@ -285,14 +296,14 @@ const run = async () => {
           try {
             info = await scrapy.findDownloadInfo(key)
           } catch (error) {
-            log('error', 'error occured in function [findDownloadInfo], will retry')
+            log('error', 'error occured while getting download info, waiting for retry')
             info = null
             log('error', error, true)
           }
         }
 
         if (!info.title || info.title.trim().length === 0) {
-          log('warn', 'cannot find video title.')
+          log('warn', `cannot find the video title, skipping ${key}.`)
           continue
         }
 
@@ -306,7 +317,7 @@ const run = async () => {
           sizeOfDl = +result[1]
           fileStoreName = result[2]
         } catch (error) {
-          log('error', 'error occured in function [downloadVideo]:')
+          log('error', 'error occured while downloading the video')
           log('error', error, true)
           if (error.toString().includes('disk')) {
             process.exit(22)
@@ -320,7 +331,7 @@ const run = async () => {
         }
 
         log('suc', result[0])
-        log('verbose', `this turn has downloaded ${hs(sizeOfDl)}, total download size: ${hs(downloadedSize)}`)
+        log('verbose', `downloading size statistic (this/total/limitation): ${hs(sizeOfDl)} / ${hs(downloadedSize)} / ${limit} MB`)
 
         if (config.aria2 && config.aria2.address && fileStoreName) {
           fetch(config.aria2.address, {
@@ -353,11 +364,11 @@ const run = async () => {
     }
     // --- endof download loop ---
 
-    log('suc', `one of the limitation satisfied, process will auto quit
+    log('suc', `One situation has been satisfied, process will auto quit.
 total time cost: ${prettyMilliseconds(performance.now(), { verbose: true })}
-total download content size: ${hs(downloadedSize)}`)
+total download size: ${hs(downloadedSize)}`)
 
-    setTimeout(process.exit, 500, 0)
+    setTimeout(process.exit, 200, 0)
   }
 
 }
