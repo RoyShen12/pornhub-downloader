@@ -204,7 +204,24 @@ const run = async () => {
     const keyList = key.split(',')
     for (const k of keyList) {
       try {
-        const info = await scrapy.findDownloadInfo(k)
+        let info = null
+
+        while (!info) {
+
+          try {
+            info = await scrapy.findDownloadInfo(k)
+          } catch (error) {
+            log('error', 'error occured while getting download info, waiting for retry')
+            info = null
+            log('error', error, true)
+          }
+        }
+
+        if (!info.title || info.title.trim().length === 0) {
+          log('warn', `cannot find the video title, skipping ${k}.`)
+          continue
+        }
+
         const result = await scrapy.downloadVideo(info, '', undefined, cli.flags.parallel)
         log('suc', result[0])
       } catch (error) {
