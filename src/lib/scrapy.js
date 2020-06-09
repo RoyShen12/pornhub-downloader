@@ -485,7 +485,10 @@ async function downloadVideo(ditem, folderName, downloadCount, parallel) {
       if (tmpStat.size === httpChunkBytes) {
         log('warn', `detect file ${file} (piece ${idx}/${ranges.length}) already downloaded, skip it`)
         idx += 1
-        progressBar.tick(httpChunkBytes)
+        downloadedBytes += httpChunkBytes
+        progressBar.tick(httpChunkBytes, {
+          prog: chalk.bold(`${hs(downloadedBytes, 2)}/${hs(contentTotalLength, 2)}`)
+        })
         continue
       }
       else {
