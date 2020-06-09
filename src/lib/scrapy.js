@@ -7,6 +7,10 @@ const util = require('util')
 // eslint-disable-next-line no-unused-vars
 const sysUtil = util
 
+async function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms))
+}
+
 const tempDir = path.resolve(os.tmpdir(), 'ph-dler/')
 fs.existsSync(tempDir) || fs.mkdirSync(tempDir)
 
@@ -584,6 +588,7 @@ Header=${util.inspect(res.headers, false, 2, true)}`)
         oneFile = null
         log('err', error, true)
         log('alert', 'downloading chunk fails, waiting for retry')
+        await sleep(100)
       }
     } // ----- end of while
     const tmr = vblog.stopWatch('scrapy.js-downloadVideo-piece', false)
