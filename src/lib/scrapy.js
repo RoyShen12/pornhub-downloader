@@ -331,7 +331,7 @@ async function downloadVideo(ditem, folderName, downloadCount, parallel) {
   const filenameWithRank = downloadCount === undefined ? filename : `${(downloadCount + '').padStart(4, '0')}_${filename}`
   const transferedFilenameWithRank = transferBadSymbolOnFileName(filenameWithRank)
 
-  const dir = config.downloadDir + transferBadSymbolOnFileName(folderName)
+  const dir = path.resolve(config.downloadDir, transferBadSymbolOnFileName(folderName))
 
   if (!global.cli.flags.fakerun) {
     fs.existsSync(dir) || fs.mkdirSync(dir)
