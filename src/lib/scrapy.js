@@ -205,10 +205,7 @@ function findTitle(bodyStr) {
 
   vblog(`[findTitle] gets raw title=${title}`)
 
-  const arr = title.split('-')
-  arr.pop()
-
-  const ret = arr.join('-').trim()
+  const ret = title.replace(/\s-\sPornhub\.com.*/,'').trim()
 
   const tm = chalk.redBright(prettyMilliseconds(vblog.stopWatch('findTitle', false), { verbose: true }))
   vblog(`[findTitle] exits with ret=${ret}, time cost ${tm}`)
