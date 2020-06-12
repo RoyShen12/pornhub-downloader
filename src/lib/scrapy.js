@@ -481,9 +481,9 @@ async function downloadVideo(ditem, folderName, downloadCount, parallel) {
 
     if (fs.existsSync(standardFile)) {
       const tmpStat = fs.statSync(standardFile)
-      vblog(`[downloadVideo] <in Promise> for...of check file piece(${idx}/${ranges.length}) ${chalk.greenBright('(Exists)')} (Size: ${chalk.blueBright(tmpStat.size)})`)
+      vblog(`[downloadVideo] <in Promise> for...of check file piece(${idx + 1}/${ranges.length}) ${chalk.greenBright('(Exists)')} (Size: ${chalk.blueBright(tmpStat.size)})`)
       if (tmpStat.size === httpChunkBytes) {
-        log('warn', `detect file ${file} (piece ${idx}/${ranges.length}) already downloaded, skip it`)
+        log('warn', `detect file ${file} (piece ${idx + 1}/${ranges.length}) already downloaded, skip it`)
         idx += 1
         downloadedBytes += httpChunkBytes
         progressBar.tick(httpChunkBytes, {
@@ -492,7 +492,7 @@ async function downloadVideo(ditem, folderName, downloadCount, parallel) {
         continue
       }
       else {
-        vblog(`file ${file} (piece ${idx}/${ranges.length}) exists but ${chalk.yellowBright('Incomplete')}, redownload it`)
+        vblog(`file ${file} (piece ${idx + 1}/${ranges.length}) exists but ${chalk.yellowBright('Incomplete')}, redownload it`)
       }
     }
 
@@ -522,11 +522,11 @@ async function downloadVideo(ditem, folderName, downloadCount, parallel) {
     let oneFile = null
 
     while (!oneFile) {
-      vblog(`[downloadVideo] for...of while loop for file piece(${idx}/${ranges.length}) entered`)
+      vblog(`[downloadVideo] for...of while loop for file piece(${idx + 1}/${ranges.length}) entered`)
 
       try {
         const res = await bytesFetch(ditem.videoUrl)
-        vblog(`[downloadVideo] for...of Request for file piece(${idx}/${ranges.length}) responed with
+        vblog(`[downloadVideo] for...of Request for file piece(${idx + 1}/${ranges.length}) responed with
 Code=${res.status}
 Header=${util.inspect(res.headers, false, 2, true)}`)
 
@@ -544,7 +544,7 @@ Header=${util.inspect(res.headers, false, 2, true)}`)
         // const avgSpeed = hs(downloadedBytes / (timePE - timeStart) * 1000, 1)
         // progressBar.tick(oneFile.length, {
         //   spd: avgSpeed,
-        //   piece: `${idx}/${ranges.length}`
+        //   piece: `${idx + 1}/${ranges.length}`
         // })
 
         // await fsp.writeFile(standardFile, oneFile, { encoding: 'binary' })
@@ -573,7 +573,7 @@ Header=${util.inspect(res.headers, false, 2, true)}`)
             progressBar.tick(innerProgress.delta, {
               // spd: hs(downloadedBytes / (progressTime - timeStart) * 1000, 1),
               spd: hs((dlChunkQueue.last - dlChunkQueue.first) / (dlTimeQueue.last - dlTimeQueue.first) * 1000, 1),
-              piece: `${idx}/${ranges.length}`,
+              piece: `${idx + 1}/${ranges.length}`,
               prog: chalk.bold(`${hs(downloadedBytes, 2)}/${hs(contentTotalLength, 2)}`)
             })
           })
@@ -582,16 +582,24 @@ Header=${util.inspect(res.headers, false, 2, true)}`)
             reject(err)
           })
           .on('close', () => {
-            vblog(`[downloadVideo] for...of Request for file piece(${idx}/${ranges.length}) ended, Stream closed`)
-            idx += 1
-            resolve(true)
+            // console.log('\n', downloadedBytes, httpChunkBytes * (idx + 1))
+            if (idx < ranges.length - 1 && downloadedBytes !== httpChunkBytes * (idx + 1)) {
+              console.log(chalk.bold(chalk.yellowBright('\nbad Close !')))
+              downloadedBytes = httpChunkBytes * idx
+              reject('bad Close !')
+            }
+            else {
+              vblog(`[downloadVideo] for...of Request for file piece(${idx + 1}/${ranges.length}) ended, Stream closed`)
+              idx += 1
+              resolve(true)
+            }
           })
         })
       } catch (error) {
         oneFile = null
         log('err', error, true)
         log('alert', 'downloading chunk fails, waiting for retry')
-        await sleep(100)
+        await sleep(500)
       }
     } // ----- end of while
     const tmr = vblog.stopWatch('scrapy.js-downloadVideo-piece', false)

@@ -4,6 +4,13 @@ process.env.TZ = 'Asia/Shanghai'
 const fs = require('fs')
 const path = require('path')
 
+fs.existsSync('./config.json') || fs.writeFileSync('./config.json', JSON.stringify({
+  proxyUrl: '',
+  timeout: 0,
+  downloadDir: './downloads/',
+  httpChunkSizeKB: 5120
+}, null, 2))
+
 /**
  * @type {{ proxyUrl: string, timeout: number, downloadDir: string, httpChunkSizeKB: number, aria2: any }}
  */
@@ -237,7 +244,9 @@ const run = async () => {
     const limit = +cli.flags.limit
     const amountLimit = +cli.flags.amount
 
-    const skip = +cli.flags.skip
+    let skip = +cli.flags.skip
+
+    log('notice', `skipping first ${skip} results`)
 
     if (isNaN(limit)) {
       console.log(`--limit (-l): ${LANGS['Invalid number value']} '${cli.flags.limit}'`)
@@ -290,11 +299,12 @@ const run = async () => {
         continue
       }
 
-      if (page === 1 && skip > 0) {
-        log('notice', `skipping first ${skip} results`)
+      if (skip > 0) {
+        const remainSkip = skip > keys.length ? skip - keys.length : 0
         // console.log(keys)
-        new Array(skip).fill(1).forEach(() => keys.shift())
+        new Array(Math.min(keys.length, skip)).fill(1).forEach(() => keys.shift())
         // console.log(keys)
+        skip = remainSkip
       }
 
       // --- one page loop ---
