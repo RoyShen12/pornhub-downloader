@@ -19,6 +19,7 @@ fs.existsSync(tempDir) || fs.mkdirSync(tempDir)
  */
 const config = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'config.json')).toString())
 
+const targetDir = global.cli.flags.dir || config.downloadDir
 
 const _ = require('lodash')
 
@@ -328,7 +329,7 @@ async function downloadVideo(ditem, folderName, downloadCount, parallel) {
   const filenameWithRank = downloadCount === undefined ? filename : `${(downloadCount + '').padStart(4, '0')}_${filename}`
   const transferedFilenameWithRank = transferBadSymbolOnFileName(filenameWithRank)
 
-  const dir = path.resolve(config.downloadDir, transferBadSymbolOnFileName(folderName))
+  const dir = path.resolve(targetDir, transferBadSymbolOnFileName(folderName))
 
   if (!global.cli.flags.fakerun) {
     fs.existsSync(dir) || fs.mkdirSync(dir)
@@ -353,7 +354,7 @@ async function downloadVideo(ditem, folderName, downloadCount, parallel) {
     }
   }
 
-  if (fs.existsSync(transferedDst) && downloadCount === undefined) {
+  if (!global.cli.flags.force && fs.existsSync(transferedDst) && downloadCount !== undefined) {
     log('warn', `rename to -> ${filenameWithRank}`)
     fs.renameSync(transferedDst, transferedDstWithRank)
     return [`${title} already exists in dl path and has been renamed into new style!`, 0]
@@ -361,13 +362,13 @@ async function downloadVideo(ditem, folderName, downloadCount, parallel) {
 
   // check new file
   const thisFolderFiles = global.cli.flags.fakerun ? [] : fs.readdirSync(dir).filter(f => f[0] !== '.')
-  if (thisFolderFiles.some(oldf => fileNameToTitle(oldf) === transferedTitle)) {
+  if (!global.cli.flags.force && thisFolderFiles.some(oldf => fileNameToTitle(oldf) === transferedTitle)) {
     return [`${title} already exists in dl path!`, 0]
   }
 
   // check dl list
   const oldFiles = fs.readFileSync(path.join(process.cwd(), './dlist.txt'), 'utf-8').toString().split('\n')
-  if (oldFiles.includes(transferedTitle)) {
+  if (!global.cli.flags.force && oldFiles.includes(transferedTitle)) {
     return [`${title} already exists in dlist.txt!`, 0]
   }
 
@@ -395,7 +396,7 @@ async function downloadVideo(ditem, folderName, downloadCount, parallel) {
   }
 
   // stop tasks while disk is full
-  const diskusage = await disk.check(/*os.platform() === 'win32' ? 'c:' : '/'*/config.downloadDir)
+  const diskusage = await disk.check(/*os.platform() === 'win32' ? 'c:' : '/'*/targetDir)
   if (diskusage.free < contentTotalLength * 2.5) {
     throw new Error('skip this video (no free disk space remains)')
   }

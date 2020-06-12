@@ -59,6 +59,9 @@ const cli = meow(`
       -f, --fakerun             Fake running (Dry run), won't actually download anything
                                 干运行，不会实际下载视频、写入dlist
 
+      --force                   Force downloading, even the file is already downloaded or exists
+                                强制下载，无视 dlist 记录和本地已存在文件
+
       --skip <num>              Skip the first few videos
                                 跳过前 N 个视频
 
@@ -72,6 +75,9 @@ const cli = meow(`
 
       --list-only               Only list keys from searching key word
                                 仅列出搜索结果的ph号，并不会实际下载
+
+      -d, --dir                 Specify storage directory to cover the config file option
+                                指定存储目录，覆盖配置文件的项
 
       --preview                 Show preview image of each video before downloading
                                 显示缩略图预览（需要Mac与iTerm版本>2.9）
@@ -106,6 +112,12 @@ const cli = meow(`
       fakerun: {
         type: 'boolean',
         alias: 'f'
+      },
+      force: {
+        type: 'boolean'
+      },
+      dir: {
+        alias: 'd'
       },
       skip: {
         default: '0'
