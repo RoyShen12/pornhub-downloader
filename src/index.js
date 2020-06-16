@@ -186,9 +186,14 @@ stdin.on('readable', function() {
   //
   // Restart process when user inputs stop
   //
-  if (chunk !== null && chunk === 'stop\n' || chunk === 'stop\r\n') {
-    log('alert', LANGS['process will shutdown after current download finish.'])
-    processShutdownToken = true
+  if (chunk !== null) {
+    if (chunk === 'stop\n' || chunk === 'stop\r\n') {
+      log('alert', LANGS['process will shutdown after current download finish.'])
+      processShutdownToken = true
+    }
+    else if (chunk === 'skip\n' || chunk === 'skip\r\n') {
+      log('alert', 'skip this task !')
+    }
   }
 })
 
@@ -370,7 +375,7 @@ const run = async () => {
         }
 
         log('suc', result[0])
-        log('verbose', `downloading size statistic (this/total/limitation): ${hs(sizeOfDl)} / ${hs(downloadedSize)} / ${limit} MB`)
+        log('verbose', `downloading size statistic (this/total/limitation): ${hs(sizeOfDl, 2)} / ${hs(downloadedSize, 2)} / ${limit} MB`)
 
         if (config.aria2 && config.aria2.address && fileStoreName) {
           fetch(config.aria2.address, {
@@ -405,7 +410,7 @@ const run = async () => {
 
     log('suc', `One situation has been satisfied, process will auto quit.
 total time cost: ${prettyMilliseconds(performance.now(), { verbose: true })}
-total download size: ${hs(downloadedSize)}`)
+total download size: ${hs(downloadedSize, 1)}`)
 
     setTimeout(process.exit, 200, 0)
   }
