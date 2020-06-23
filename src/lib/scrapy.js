@@ -110,6 +110,7 @@ if (config.timeout > 0) {
 const fetch = makeFetchHappen.defaults(baseFetchOptions)
 
 const httpChunkBytes = (config.httpChunkSizeKB || 2048) * 1024
+const timeout = httpChunkBytes / 20480/* 20kb/s */ * 1000
 
 async function findKeys(opts) {
   vblog.stopWatch('findKeys-requests', true)
@@ -549,7 +550,6 @@ Header=${util.inspect(res.headers, false, 2, true)}`)
 
         // idx += 1
 
-        const timeout = httpChunkBytes / 20480/* 20kb/s */ * 1000
         oneFile = await Promise.race([
           new Promise((res, rej) => {
             setTimeout(() => {
