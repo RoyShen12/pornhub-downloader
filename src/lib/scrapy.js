@@ -515,7 +515,7 @@ async function downloadVideo(ditem, folderName, downloadCount, parallel) {
     const bytesFetch = makeFetchHappen.defaults(bdOpt)
 
     /**
-     * @type {Buffer | null}
+     * @type { boolean | null }
      */
     let oneFile = null
 
@@ -549,50 +549,59 @@ Header=${util.inspect(res.headers, false, 2, true)}`)
 
         // idx += 1
 
-        oneFile = await new Promise((resolve, reject) => {
-          let OriginStream = res.body
+        const timeout = httpChunkBytes / 20480/* 20kb/s */ * 1000
+        oneFile = await Promise.race([
+          new Promise((res, rej) => {
+            setTimeout(() => {
+              downloadedBytes = httpChunkBytes * idx
+              rej('timeout !')
+            }, timeout)
+          }),
+          new Promise((resolve, reject) => {
+            let OriginStream = res.body
 
-          if (global.cli.flags.limitSpeed) {
-            OriginStream = OriginStream.pipe(new Throttle(global.cli.flags.limitSpeed * 1024))
-          }
+            if (global.cli.flags.limitSpeed) {
+              OriginStream = OriginStream.pipe(new Throttle(global.cli.flags.limitSpeed * 1024))
+            }
 
-          OriginStream.pipe(progressStream({ time: 17, speed: Infinity }))
-          .on('error', err => {
-            reject(err)
-          })
-          .on('progress', innerProgress => {
-            const progressTime = perf.now()
+            OriginStream.pipe(progressStream({ time: 17, speed: Infinity }))
+            .on('error', err => {
+              reject(err)
+            })
+            .on('progress', innerProgress => {
+              const progressTime = perf.now()
 
-            downloadedBytes += innerProgress.delta
+              downloadedBytes += innerProgress.delta
 
-            dlTimeQueue.push(progressTime)
-            dlChunkQueue.push(downloadedBytes)
+              dlTimeQueue.push(progressTime)
+              dlChunkQueue.push(downloadedBytes)
 
-            progressBar.tick(innerProgress.delta, {
-              // spd: hs(downloadedBytes / (progressTime - timeStart) * 1000, 1),
-              spd: hs((dlChunkQueue.last - dlChunkQueue.first) / (dlTimeQueue.last - dlTimeQueue.first) * 1000, 1),
-              piece: `${idx + 1}/${ranges.length}`,
-              prog: chalk.bold(`${hs(downloadedBytes, 2)}/${hs(contentTotalLength, 2)}`)
+              progressBar.tick(innerProgress.delta, {
+                // spd: hs(downloadedBytes / (progressTime - timeStart) * 1000, 1),
+                spd: hs((dlChunkQueue.last - dlChunkQueue.first) / (dlTimeQueue.last - dlTimeQueue.first) * 1000, 1),
+                piece: `${idx + 1}/${ranges.length}`,
+                prog: chalk.bold(`${hs(downloadedBytes, 2)}/${hs(contentTotalLength, 2)}`)
+              })
+            })
+            .pipe(fs.createWriteStream(standardFile, { encoding: 'binary', highWaterMark: Math.round(httpChunkBytes * 1.25) }))
+            .on('error', err => {
+              reject(err)
+            })
+            .on('close', () => {
+              // console.log('\n', downloadedBytes, httpChunkBytes * (idx + 1))
+              if (idx < ranges.length - 1 && downloadedBytes !== httpChunkBytes * (idx + 1)) {
+                console.log(chalk.bold(chalk.yellowBright('\nbad Close !')))
+                downloadedBytes = httpChunkBytes * idx
+                reject('bad Close !')
+              }
+              else {
+                vblog(`[downloadVideo] for...of Request for file piece(${idx + 1}/${ranges.length}) ended, Stream closed`)
+                idx += 1
+                resolve(true)
+              }
             })
           })
-          .pipe(fs.createWriteStream(standardFile, { encoding: 'binary', highWaterMark: Math.round(httpChunkBytes * 1.25) }))
-          .on('error', err => {
-            reject(err)
-          })
-          .on('close', () => {
-            // console.log('\n', downloadedBytes, httpChunkBytes * (idx + 1))
-            if (idx < ranges.length - 1 && downloadedBytes !== httpChunkBytes * (idx + 1)) {
-              console.log(chalk.bold(chalk.yellowBright('\nbad Close !')))
-              downloadedBytes = httpChunkBytes * idx
-              reject('bad Close !')
-            }
-            else {
-              vblog(`[downloadVideo] for...of Request for file piece(${idx + 1}/${ranges.length}) ended, Stream closed`)
-              idx += 1
-              resolve(true)
-            }
-          })
-        })
+        ])
       } catch (error) {
         oneFile = null
         log('err', error, true)
