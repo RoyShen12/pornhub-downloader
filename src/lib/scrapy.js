@@ -20,6 +20,7 @@ fs.existsSync(tempDir) || fs.mkdirSync(tempDir)
 const config = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'config.json')).toString())
 
 const targetDir = global.cli.flags.dir || config.downloadDir
+const cachedir = global.cli.flags.dir || config.cacheDir
 
 const _ = require('lodash')
 
@@ -330,17 +331,19 @@ async function downloadVideo(ditem, folderName, downloadCount, parallel) {
   const filenameWithRank = downloadCount === undefined ? filename : `${(downloadCount + '').padStart(4, '0')}_${filename}`
   const transferedFilenameWithRank = transferBadSymbolOnFileName(filenameWithRank)
 
-  const dir = path.resolve(targetDir, transferBadSymbolOnFileName(folderName))
+  // const dir = path.resolve(targetDir, transferBadSymbolOnFileName(folderName))
+  const dir = targetDir;
+  vblog(`[Debug] Desternation folder : ${dir}`);
 
   if (!global.cli.flags.fakerun) {
     fs.existsSync(dir) || fs.mkdirSync(dir)
   }
 
-  const dst = path.join(dir, filename)
-  const dstWithRank = path.join(dir, filenameWithRank)
+  const dst = path.join(dir, transferBadSymbolOnPathName(filename))
+  const dstWithRank = path.join(dir, transferBadSymbolOnPathName(filenameWithRank))
 
-  const transferedDst = transferBadSymbolOnPathName(dst)
-  const transferedDstWithRank = transferBadSymbolOnPathName(dstWithRank)
+  const transferedDst = dst
+  const transferedDstWithRank = dstWithRank
 
   vblog(`[downloadVideo] generated safe title: ${chalk.cyan(transferedTitle)} in safe path: ${chalk.cyanBright(transferedDst)}`)
 
@@ -472,11 +475,14 @@ async function downloadVideo(ditem, folderName, downloadCount, parallel) {
     vblog.stopWatch('scrapy.js-downloadVideo-piece', true)
     vblog(`[downloadVideo] for...of at range=(${chalk.bold(item.start)}, ${chalk.bold(item.end)})`)
 
-    const file = path.join(dir, `${ditem.key}${idx}`)
+    const tmpFilename = transferBadSymbolOnPathName(ditem.key + idx);
+    const file = path.join(cachedir, `${tmpFilename}`)
+    // const file = dir 
 
     files.push(file)
 
-    const standardFile = transferBadSymbolOnPathName(file)
+    const standardFile = file
+    vblog(`[Chunk] Downloading ${standardFile}`)
 
     if (fs.existsSync(standardFile)) {
       const tmpStat = fs.statSync(standardFile)
@@ -622,7 +628,7 @@ Header=${util.inspect(res.headers, false, 2, true)}`)
   for (const file of files) {
     vblog(`[downloadVideo] <in Promise> for...of at file=${file}`)
 
-    const standardFile = transferBadSymbolOnPathName(file)
+    const standardFile = file
 
     const tmpRead = fs.createReadStream(standardFile, { flags: 'r', highWaterMark: httpChunkBytes })
 

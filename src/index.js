@@ -8,6 +8,7 @@ fs.existsSync('./config.json') || fs.writeFileSync('./config.json', JSON.stringi
   proxyUrl: '',
   timeout: 0,
   downloadDir: './downloads/',
+  cacheDir: './cache/',
   httpChunkSizeKB: 5120
 }, null, 2))
 
